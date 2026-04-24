@@ -1,5 +1,6 @@
 # syntax=docker/dockerfile:1
 FROM alpine:3.23 AS builder
+ARG TARGETARCH
 
 RUN apk update && apk upgrade --no-cache && \
     apk add --no-cache --virtual=build-deps \
@@ -12,7 +13,9 @@ COPY . /src/dynpax
 
 WORKDIR /src/dynpax
 
-RUN --mount=type=cache,target=/src/dynpax/build \
+RUN mkdir -p build_${TARGETARCH}
+
+RUN --mount=type=cache,target=/src/dynpax/build_${TARGETARCH} \
     CC=/usr/bin/$(uname -m)-alpine-linux-musl-gcc \
     CXX=/usr/bin/$(uname -m)-alpine-linux-musl-g++ \
     AR=/usr/bin/$(uname -m)-alpine-linux-musl-ar \
@@ -22,10 +25,10 @@ RUN --mount=type=cache,target=/src/dynpax/build \
     CFLAGS="-static -static-libgcc -flto=auto -fno-pie -no-pie" \
     CXXFLAGS="-static -static-libgcc -static-libstdc++ -fno-pie -no-pie -flto=auto" \
     LDFLAGS="-static -static-libgcc -static-libstdc++ -flto=auto -fno-pie -no-pie" \
-    cmake -S . -B build -G Ninja \
+    cmake -S . -B build_${TARGETARCH} -G Ninja \
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_INSTALL_PREFIX=/opt/dynpax && \
-    cmake --build build --target install --parallel $(nproc)
+    cmake --build build_${TARGETARCH} --target install --parallel $(nproc)
 
 FROM scratch AS runtime
 
