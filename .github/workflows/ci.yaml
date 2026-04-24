@@ -25,7 +25,7 @@ permissions:
 
 jobs:
     build:
-        runs-on: ubuntu-latest
+        runs-on: [ self-hosted, ubuntu-26.04, amd64 ]
         steps:
             - uses: actions/checkout@v6
             - name: Set up QEMU
@@ -50,7 +50,7 @@ jobs:
                   cache-to: type=registry,ref=${{ env.REGISTRY }}/${{ env.NAME }}:cacheimage,mode=max
 
     bump-version:
-        runs-on: ubuntu-latest
+        runs-on: [ self-hosted, ubuntu-26.04, amd64 ]
         if: github.event_name != 'release'
         needs:
             - build
@@ -79,7 +79,7 @@ jobs:
                   npx semantic-release
 
     release:
-        runs-on: ubuntu-latest
+        runs-on: [ self-hosted, ubuntu-26.04, amd64 ]
         needs:
             - build
         if: github.event_name == 'release' && github.event.action == 'published'
@@ -87,9 +87,9 @@ jobs:
             - name: Tag Name
               id: tag-name
               run: |
-                if [ "${{ github.event_name }}" = "release" ]; then
-                    echo "tag=$(basename "${{ github.ref}}")" >> $GITHUB_OUTPUT
-                fi
+                  if [ "${{ github.event_name }}" = "release" ]; then
+                      echo "tag=$(basename "${{ github.ref}}")" >> $GITHUB_OUTPUT
+                  fi
             - uses: actions/checkout@v6
             - name: Set up QEMU
               uses: docker/setup-qemu-action@v4
@@ -109,7 +109,7 @@ jobs:
                   platforms: linux/amd64,linux/arm64
                   push: true
                   tags: |
-                    ${{ env.REGISTRY }}/${{ env.NAME }}:latest
-                    ${{ env.REGISTRY }}/${{ env.NAME }}:${{ steps.tag-name.outputs.tag }}
+                      ${{ env.REGISTRY }}/${{ env.NAME }}:latest
+                      ${{ env.REGISTRY }}/${{ env.NAME }}:${{ steps.tag-name.outputs.tag }}
                   cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ env.NAME }}:cacheimage
                   cache-to: type=registry,ref=${{ env.REGISTRY }}/${{ env.NAME }}:cacheimage,mode=max
