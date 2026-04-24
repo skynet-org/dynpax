@@ -1,0 +1,4 @@
+Diagnostics:
+  ClangTidy:
+    Add: ['clang-diagnostic-*', 'clang-analyzer-*', 'bugprone-*', 'portability-*', 'readability-*', 'performance-*', 'concurrency-*', 'modernize-*', 'cppcoreguidelines-*', 'misc-*', 'cert-*']
+    

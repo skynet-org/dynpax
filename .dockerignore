@@ -1,0 +1,11 @@
+build/
+.cache/
+.vscode/
+.gitignore
+compile_commands.json
+.clang-format
+.clang-tidy
+.clangd
+Dockerfile
+Dockerfile.*
+README.md

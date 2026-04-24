@@ -1,0 +1,21 @@
+FROM ghcr.io/skynet-core/dynpax:latest AS tool
+
+FROM ubuntu:24.04 AS runtime
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    tree \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=tool /opt/dynpax/bin/dynpax /bin/dynpax
+
+RUN /bin/dynpax -t /usr/bin/bash -f /opt/fakeroot -i
+
+RUN tree /opt/fakeroot/
+
+FROM scratch AS destination
+
+COPY --from=runtime /opt/fakeroot /
+
+CMD ["/bin/bash","-i"]
