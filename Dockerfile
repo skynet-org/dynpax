@@ -1,5 +1,5 @@
+# syntax=docker/dockerfile:1
 FROM alpine:3.23 AS builder
-
 
 RUN apk update && apk upgrade --no-cache && \
     apk add --no-cache --virtual=build-deps \
