@@ -31,18 +31,12 @@ auto main(int argc, char *argv[]) -> int
                  fileManager.fakeRoot().string());
     for (const auto &library : binary.neededLibraries())
     {
-        if (auto real =
-                dynpax::LibraryResolver::resolveLibrary(library);
-            real)
+        auto dst = fileManager.joinFakeRoot({library});
+        fmt::println("Copying {} => {}", library, dst.string());
+        if (!dynpax::FileManager::copyFile(library, dst))
         {
-            auto dst = fileManager.joinFakeRoot({real.value()});
-            fmt::println("Copying {} => {}", real.value(),
+            fmt::println("Error: failed to copy: {} => {}", library,
                          dst.string());
-            if (!dynpax::FileManager::copyFile(*real, dst))
-            {
-                fmt::println("Error: failed to copy: {} => {}", *real,
-                             dst.string());
-            }
         }
     }
     if (parseResult->includeInterpreter)

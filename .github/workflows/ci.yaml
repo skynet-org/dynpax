@@ -15,8 +15,8 @@ env:
     DOCKER_BUILDKIT: "1"
 
 concurrency:
-    group: ${{ github.workflow }}-${{ github.ref }}
-    cancel-in-progress: true
+    group: release-workflow
+    cancel-in-progress: false
 
 permissions:
     contents: read

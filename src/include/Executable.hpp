@@ -1,11 +1,13 @@
 #pragma once
 
+#include "LIEF/Abstract/Binary.hpp"
 #include <expected>
 #include <filesystem>
 #include <memory>
 #include <optional>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace dynpax
@@ -43,6 +45,11 @@ struct Executable
     [[nodiscard]] auto filePath() const -> fs::path;
 
   private:
+    [[nodiscard]] auto needed(
+        const std::unique_ptr<LIEF::Binary> &binary) const
+        -> std::vector<std::string>;
+    [[nodiscard]] auto needed(const std::string &name) const
+        -> std::vector<std::string>;
     struct Impl;
     std::unique_ptr<Impl> pimpl{nullptr};
 };
