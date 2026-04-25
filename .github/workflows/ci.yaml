@@ -75,7 +75,7 @@ jobs:
                       conventional-changelog-conventionalcommits
             - name: Automatic Release
               env:
-                  GITHUB_TOKEN: ${{ secrets.GH_PAT }}
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
               run: |
                   npx semantic-release
 
