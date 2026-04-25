@@ -27,7 +27,7 @@ RUN --mount=type=cache,target=/src/dynpax/build_${TARGETARCH} \
     LDFLAGS="-static -static-libgcc -static-libstdc++ -flto=auto -fno-pie -no-pie" \
     cmake -S . -B build_${TARGETARCH} -G Ninja \
     -DCMAKE_BUILD_TYPE=Release \
-    -DCMAKE_INSTALL_PREFIX=/opt/dynpax && \
+    -DCMAKE_INSTALL_PREFIX=/opt/dynpax --fresh && \
     cmake --build build_${TARGETARCH} --target install --parallel $(nproc)
 
 FROM scratch AS runtime
