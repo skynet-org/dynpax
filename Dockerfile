@@ -12,11 +12,12 @@ RUN apk update && apk upgrade --no-cache && \
     automake autoconf autoconf-archive tree \
     musl-dev libstdc++-dev ccache
 
-COPY . /src/dynpax
-
 WORKDIR /src/dynpax
 
 RUN mkdir -p build_${TARGETARCH}
+
+COPY CMakeLists.txt /src/dynpax/
+COPY cmake/ /src/dynpax/cmake
 
 RUN --mount=type=cache,target=/src/dynpax/build_${TARGETARCH} \
     --mount=type=cache,target=/ccache_${TARGETARCH} \
@@ -33,7 +34,53 @@ RUN --mount=type=cache,target=/src/dynpax/build_${TARGETARCH} \
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_C_COMPILER_LAUNCHER=ccache \
     -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
-    -DCMAKE_INSTALL_PREFIX=/opt/dynpax --fresh && \
+    -DDEPENDENCIES_ONLY=ON \
+    -DCMAKE_INSTALL_PREFIX=/opt/dynpax
+
+RUN --mount=type=cache,target=/src/dynpax/build_${TARGETARCH} \
+    --mount=type=cache,target=/ccache_${TARGETARCH} \
+    CC="/usr/bin/ccache /usr/bin/$(uname -m)-alpine-linux-musl-gcc" \
+    CXX="/usr/bin/ccache /usr/bin/$(uname -m)-alpine-linux-musl-g++" \
+    AR=/usr/bin/$(uname -m)-alpine-linux-musl-ar \
+    NM=/usr/bin/$(uname -m)-alpine-linux-musl-nm \
+    CPP=/usr/bin/$(uname -m)-alpine-linux-musl-c++ \
+    RANLIB=/usr/bin/$(uname -m)-alpine-linux-musl-ranlib \
+    CFLAGS="-static -static-libgcc -flto=auto -fno-pie -no-pie" \
+    CXXFLAGS="-static -static-libgcc -static-libstdc++ -fno-pie -no-pie -flto=auto" \
+    LDFLAGS="-static -static-libgcc -static-libstdc++ -flto=auto -fno-pie -no-pie" \
+    cmake --build build_${TARGETARCH} --parallel $(nproc)
+
+COPY . .
+
+RUN --mount=type=cache,target=/src/dynpax/build_${TARGETARCH} \
+    --mount=type=cache,target=/ccache_${TARGETARCH} \
+    CC="/usr/bin/ccache /usr/bin/$(uname -m)-alpine-linux-musl-gcc" \
+    CXX="/usr/bin/ccache /usr/bin/$(uname -m)-alpine-linux-musl-g++" \
+    AR=/usr/bin/$(uname -m)-alpine-linux-musl-ar \
+    NM=/usr/bin/$(uname -m)-alpine-linux-musl-nm \
+    CPP=/usr/bin/$(uname -m)-alpine-linux-musl-c++ \
+    RANLIB=/usr/bin/$(uname -m)-alpine-linux-musl-ranlib \
+    CFLAGS="-static -static-libgcc -flto=auto -fno-pie -no-pie" \
+    CXXFLAGS="-static -static-libgcc -static-libstdc++ -fno-pie -no-pie -flto=auto" \
+    LDFLAGS="-static -static-libgcc -static-libstdc++ -flto=auto -fno-pie -no-pie" \
+    cmake -S . -B build_${TARGETARCH} -G Ninja \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+    -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+    -DFETCHCONTENT_FULLY_DISCONNECTED=ON \
+    -DCMAKE_INSTALL_PREFIX=/opt/dynpax --fresh
+
+RUN --mount=type=cache,target=/src/dynpax/build_${TARGETARCH} \
+    --mount=type=cache,target=/ccache_${TARGETARCH} \
+    CC="/usr/bin/ccache /usr/bin/$(uname -m)-alpine-linux-musl-gcc" \
+    CXX="/usr/bin/ccache /usr/bin/$(uname -m)-alpine-linux-musl-g++" \
+    AR=/usr/bin/$(uname -m)-alpine-linux-musl-ar \
+    NM=/usr/bin/$(uname -m)-alpine-linux-musl-nm \
+    CPP=/usr/bin/$(uname -m)-alpine-linux-musl-c++ \
+    RANLIB=/usr/bin/$(uname -m)-alpine-linux-musl-ranlib \
+    CFLAGS="-static -static-libgcc -flto=auto -fno-pie -no-pie" \
+    CXXFLAGS="-static -static-libgcc -static-libstdc++ -fno-pie -no-pie -flto=auto" \
+    LDFLAGS="-static -static-libgcc -static-libstdc++ -flto=auto -fno-pie -no-pie" \
     cmake --build build_${TARGETARCH} --target install --parallel $(nproc)
 
 FROM scratch AS runtime
