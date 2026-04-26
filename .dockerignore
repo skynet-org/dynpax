@@ -9,3 +9,15 @@ compile_commands.json
 Dockerfile
 Dockerfile.*
 README.md
+.github/
+.git/
+.clangd
+.clang-format
+.clang-tidy
+CHANGELOG.md
+Dockerfile.example
+LICENSE
+package-lock.json
+package.json
+release.config.js
+README.md

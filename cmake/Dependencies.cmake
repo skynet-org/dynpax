@@ -22,4 +22,14 @@ FetchContent_Declare(
         GIT_REPOSITORY https://github.com/fmtlib/fmt.git
         GIT_TAG ${FMT_VERSION})
 
+set(LIEF_LOGGING_DEBUG OFF CACHE BOOL "Enable LIEF debug logging")
+set(LIEF_EXAMPLES OFF CACHE BOOL "Build LIEF examples")
+set(LIEF_TESTS OFF CACHE BOOL "Build LIEF tests")
+set(CLI11_BUILD_TESTS OFF CACHE BOOL "Build CLI11 tests")
+set(CLI11_BUILD_EXAMPLES OFF CACHE BOOL "Build CLI11 examples")
+set(CLI11_BUILD_DOCS OFF CACHE BOOL "Build CLI11 documentation")
+set(FMT_TEST OFF CACHE BOOL "Build fmt tests")
+set(FMT_CUDA_TEST OFF CACHE BOOL "Build fmt CUDA tests")
+set(FMT_DOC OFF CACHE BOOL "Build fmt documentation")
+
 FetchContent_MakeAvailable(LIEF CLI11 fmt)
