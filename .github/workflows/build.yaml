@@ -4,11 +4,7 @@ on:
     pull_request:
         types: [ opened, synchronize, reopened, closed ]
         branches:
-            - "release/**"
-            - "feature/**"
-            - "bugfix/**"
-            - "fix/**"
-
+            - main
 env:
     REGISTRY: ghcr.io
     REGISTRY_USER: ${{ github.actor }}
@@ -18,7 +14,7 @@ env:
     DOCKER_BUILDKIT: "1"
 
 concurrency:
-    group: push-workflow
+    group: release-workflow
     cancel-in-progress: false
 
 permissions:
@@ -50,10 +46,8 @@ jobs:
                   push: true
                   platforms: linux/amd64
                   tags: ${{ env.REGISTRY }}/${{ env.NAME }}:amd64-tmp
-                  cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ env.NAME
-                      }}:amd64-cacheimage
-                  cache-to: type=registry,ref=${{ env.REGISTRY }}/${{ env.NAME
-                      }}:amd64-cacheimage,mode=max
+                  cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ env.NAME }}:amd64-cacheimage
+                  cache-to: type=registry,ref=${{ env.REGISTRY }}/${{ env.NAME }}:amd64-cacheimage,mode=max
                   annotations: |
                       arch=amd64
     build_arm64:
@@ -79,10 +73,8 @@ jobs:
                   push: true
                   platforms: linux/arm64
                   tags: ${{ env.REGISTRY }}/${{ env.NAME }}:arm64-tmp
-                  cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ env.NAME
-                      }}:arm64-cacheimage
-                  cache-to: type=registry,ref=${{ env.REGISTRY }}/${{ env.NAME
-                      }}:arm64-cacheimage,mode=max
+                  cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ env.NAME }}:arm64-cacheimage
+                  cache-to: type=registry,ref=${{ env.REGISTRY }}/${{ env.NAME }}:arm64-cacheimage,mode=max
                   annotations: |
                       arch=arm64
 
