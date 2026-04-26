@@ -145,8 +145,8 @@ jobs:
                   docker buildx imagetools create \
                       --tag ${{ steps.image.outputs.name }}:latest \
                       --tag ${{ steps.image.outputs.name }}:${{ steps.tag-name.outputs.tag }} \
-                      --amend ${{ steps.image.outputs.name }}:amd64-${{ steps.tag-name.outputs.tag }} \
-                      --amend ${{ steps.image.outputs.name }}:arm64-${{ steps.tag-name.outputs.tag }}
+                      ${{ steps.image.outputs.name }}:amd64-${{ steps.tag-name.outputs.tag }} \
+                      ${{ steps.image.outputs.name }}:arm64-${{ steps.tag-name.outputs.tag }}
 
                   docker push ${{ steps.image.outputs.name }}:latest
                   docker push ${{ steps.image.outputs.name }}:${{ steps.tag-name.outputs.tag }}
