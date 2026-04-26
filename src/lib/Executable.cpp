@@ -73,7 +73,8 @@ struct Executable::Impl
                 if (!path)
                 {
                     throw std::runtime_error{fmt::format(
-                        "Failed to resolve library: {}", lib)};
+                        "Failed to resolve library {}: {}", lib,
+                        path.error().what())}; // NOLINT
                 }
                 todo.pop();
                 if (seen.contains(lib))
