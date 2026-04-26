@@ -12,7 +12,7 @@ env:
     DOCKER_BUILDKIT: "1"
 
 concurrency:
-    group: release-workflow
+    group: release-workflow-${{ github.workflow }}-${{ github.ref }}
     cancel-in-progress: false
 
 permissions:
@@ -21,8 +21,9 @@ permissions:
     packages: write
 
 jobs:
-    release_amd64:
+    release-amd64:
         runs-on: [ self-hosted, X64 ]
+        timeout-minutes: 720
         if: startsWith(github.ref, 'refs/tags/')
         steps:
             - name: Tag Name
@@ -35,10 +36,6 @@ jobs:
                   REPOSITORY: ${{ github.repository }}
               run: echo "name=ghcr.io/${REPOSITORY,,}" >> "$GITHUB_OUTPUT"
             - uses: actions/checkout@v6
-            - name: Set up QEMU
-              uses: docker/setup-qemu-action@v4
-              with:
-                  platforms: linux/amd64
             - name: Set up Docker Buildx
               uses: docker/setup-buildx-action@v4
             - name: Login to GHCR
@@ -51,7 +48,6 @@ jobs:
               uses: docker/build-push-action@v7
               with:
                   push: true
-                  platforms: linux/amd64
                   tags: |
                       ${{ steps.image.outputs.name }}:amd64-latest
                       ${{ steps.image.outputs.name }}:amd64-${{ steps.tag-name.outputs.tag }}
@@ -62,8 +58,9 @@ jobs:
                   annotations: |
                       arch=amd64
 
-    release_arm64:
-        runs-on: [ self-hosted, ARM64 ]
+    release-arm64:
+        timeout-minutes: 720
+        runs-on: [ self-hosted, linux, ARM64 ]
         if: startsWith(github.ref, 'refs/tags/')
         steps:
             - name: Tag Name
@@ -78,10 +75,6 @@ jobs:
                   REPOSITORY: ${{ github.repository }}
               run: echo "name=ghcr.io/${REPOSITORY,,}" >> "$GITHUB_OUTPUT"
             - uses: actions/checkout@v6
-            - name: Set up QEMU
-              uses: docker/setup-qemu-action@v4
-              with:
-                  platforms: linux/arm64
             - name: Set up Docker Buildx
               uses: docker/setup-buildx-action@v4
             - name: Login to GHCR
@@ -94,7 +87,6 @@ jobs:
               uses: docker/build-push-action@v7
               with:
                   push: true
-                  platforms: linux/arm64
                   tags: |
                       ${{ steps.image.outputs.name }}:arm64-latest
                       ${{ steps.image.outputs.name }}:arm64-${{ steps.tag-name.outputs.tag }}
@@ -105,11 +97,12 @@ jobs:
                   annotations: |
                       arch=arm64
     release:
-        runs-on: [ self-hosted, X64 ]
+        timeout-minutes: 720
+        runs-on: [ self-hosted, linux, X64 ]
         if: startsWith(github.ref, 'refs/tags/')
         needs:
-            - release_amd64
-            - release_arm64
+            - release-amd64
+            - release-arm64
         steps:
             - name: Tag Name
               id: tag-name
@@ -123,10 +116,6 @@ jobs:
                   REPOSITORY: ${{ github.repository }}
               run: echo "name=ghcr.io/${REPOSITORY,,}" >> "$GITHUB_OUTPUT"
             - uses: actions/checkout@v6
-            - name: Set up QEMU
-              uses: docker/setup-qemu-action@v4
-              with:
-                  platforms: linux/amd64,linux/arm64
             - name: Set up Docker Buildx
               uses: docker/setup-buildx-action@v4
             - name: Login to GHCR
@@ -142,8 +131,8 @@ jobs:
                   docker buildx imagetools create \
                       --tag ${{ steps.image.outputs.name }}:latest \
                       --tag ${{ steps.image.outputs.name }}:${{ steps.tag-name.outputs.tag }} \
-                      --amend ${{ steps.image.outputs.name }}:amd64-${{ steps.tag-name.outputs.tag }} \
-                      --amend ${{ steps.image.outputs.name }}:arm64-${{ steps.tag-name.outputs.tag }}
+                      ${{ steps.image.outputs.name }}:amd64-${{ steps.tag-name.outputs.tag }} \
+                      ${{ steps.image.outputs.name }}:arm64-${{ steps.tag-name.outputs.tag }}
 
                   docker push ${{ steps.image.outputs.name }}:latest
                   docker push ${{ steps.image.outputs.name }}:${{ steps.tag-name.outputs.tag }}

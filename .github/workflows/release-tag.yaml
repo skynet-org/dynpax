@@ -3,19 +3,20 @@ name: Release Tag
 on:
     push:
         branches:
-        - main
+            - main
 
 permissions:
     contents: read
 
 concurrency:
-    group: release-tag
+    group: release-tag-${{ github.workflow }}-${{ github.ref }}
     cancel-in-progress: false
 
 jobs:
     semantic-release:
         name: Semantic Release
-        runs-on: ubuntu-latest
+        runs-on: [ self-hosted, linux, X64 ]
+        timeout-minutes: 720
         permissions:
             contents: write # to be able to publish a GitHub release
             issues: write # to be able to comment on released issues
