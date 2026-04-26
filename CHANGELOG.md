@@ -1,3 +1,9 @@
+## [1.0.8](https://github.com/skynet-org/dynpax/compare/1.0.7...1.0.8) (2026-04-26)
+
+### Bug Fixes
+
+* release pipeline ([#10](https://github.com/skynet-org/dynpax/issues/10)) ([c30bb27](https://github.com/skynet-org/dynpax/commit/c30bb27180bcd6abe4bd2448867ad9d08c1e9aef))
+
 ## [1.0.7](https://github.com/skynet-org/dynpax/compare/1.0.6...1.0.7) (2026-04-26)
 
 ### Bug Fixes
