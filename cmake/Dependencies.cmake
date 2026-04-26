@@ -4,6 +4,7 @@ set(CLI11_VERSION v2.6.2)
 set(FMT_VERSION 12.1.0)
 
 include(FetchContent)
+
 FetchContent_Declare(
         LIEF
         GIT_REPOSITORY "${LIEF_GIT_URL}"
