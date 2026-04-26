@@ -132,10 +132,8 @@ jobs:
                       -t ${{ steps.image.outputs.name }}:${{ steps.tag-name.outputs.tag }} \
                       ${{ steps.image.outputs.name }}:amd64-${{ steps.tag-name.outputs.tag }} \
                       ${{ steps.image.outputs.name }}:arm64-${{ steps.tag-name.outputs.tag }}
-                  docker push ${{ steps.image.outputs.name }}:${{ steps.tag-name.outputs.tag }}
 
                   docker buildx imagetools create \
                       -t ${{ steps.image.outputs.name }}:latest \
                       ${{ steps.image.outputs.name }}:amd64-${{ steps.tag-name.outputs.tag }} \
                       ${{ steps.image.outputs.name }}:arm64-${{ steps.tag-name.outputs.tag }}
-                  docker push ${{ steps.image.outputs.name }}:latest
