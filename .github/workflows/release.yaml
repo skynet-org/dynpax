@@ -1,8 +1,6 @@
-name: Build and Test
+name: Release
 
 on:
-    push:
-        branches: [ main ]
     release:
         types: [ published ]
 
@@ -26,6 +24,7 @@ permissions:
 jobs:
     build_amd64:
         runs-on: [ self-hosted, X64 ]
+        if: github.event_name == 'release' && github.event.action == 'published'
         timeout-minutes: 720
         steps:
             - uses: actions/checkout@v6
@@ -53,6 +52,7 @@ jobs:
                       arch=amd64
     build_arm64:
         runs-on: [ self-hosted, ARM64 ]
+        if: github.event_name == 'release' && github.event.action == 'published'
         timeout-minutes: 720
         steps:
             - uses: actions/checkout@v6
@@ -79,42 +79,11 @@ jobs:
                   annotations: |
                       arch=arm64
 
-    bump-version:
-        runs-on: [ self-hosted, X64 ]
-        if: github.event_name != 'release'
-        needs:
-            - build_amd64
-            - build_arm64
-        steps:
-            - uses: actions/checkout@v6
-              with:
-                  fetch-depth: 0
-                  ref: ${{ github.ref }}
-            - name: Setup Node.js
-              uses: actions/setup-node@v6
-              with:
-                  node-version: "lts/*"
-            - name: Install modules
-              env:
-                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-              run: |
-                  npm install --save-dev @semantic-release/changelog \
-                      @semantic-release/commit-analyzer \
-                      @semantic-release/release-notes-generator \
-                      @semantic-release/github \
-                      @semantic-release/git \
-                      conventional-changelog-conventionalcommits
-            - name: Automatic Release
-              env:
-                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-              run: |
-                  npx semantic-release
-
     release_amd64:
         runs-on: [ self-hosted, X64 ]
+        if: github.event_name == 'release' && github.event.action == 'published'
         needs:
             - build_amd64
-        if: github.event_name == 'release' && github.event.action == 'published'
         steps:
             - name: Tag Name
               id: tag-name
@@ -150,9 +119,9 @@ jobs:
 
     release_arm64:
         runs-on: [ self-hosted, ARM64 ]
+        if: github.event_name == 'release' && github.event.action == 'published'
         needs:
             - build_arm64
-        if: github.event_name == 'release' && github.event.action == 'published'
         steps:
             - name: Tag Name
               id: tag-name
@@ -187,10 +156,10 @@ jobs:
                       arch=arm64
     release:
         runs-on: [ self-hosted, X64 ]
+        if: github.event_name == 'release' && github.event.action == 'published'
         needs:
             - release_amd64
             - release_arm64
-        if: github.event_name == 'release' && github.event.action == 'published'
         steps:
             - name: Tag Name
               id: tag-name
