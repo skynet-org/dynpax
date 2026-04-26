@@ -66,9 +66,7 @@ jobs:
             - name: Tag Name
               id: tag-name
               run: |
-                  if [ "${{ github.event_name }}" = "release" ]; then
-                      echo "tag=$(basename "${{ github.ref}}")" >> $GITHUB_OUTPUT
-                  fi
+                echo "tag=$(basename "${{ github.ref}}")" >> $GITHUB_OUTPUT
             - name: Compute image name
               id: image
               env:
@@ -107,9 +105,7 @@ jobs:
             - name: Tag Name
               id: tag-name
               run: |
-                  if [ "${{ github.event_name }}" = "release" ]; then
-                      echo "tag=$(basename "${{ github.ref}}")" >> $GITHUB_OUTPUT
-                  fi
+                echo "tag=$(basename "${{ github.ref}}")" >> $GITHUB_OUTPUT
             - name: Compute image name
               id: image
               env:
