@@ -1,3 +1,9 @@
+## [1.0.9](https://github.com/skynet-org/dynpax/compare/1.0.8...1.0.9) (2026-04-26)
+
+### Bug Fixes
+
+* more detailed error message ([#13](https://github.com/skynet-org/dynpax/issues/13)) ([08c6804](https://github.com/skynet-org/dynpax/commit/08c6804f2b5785d0a30473471b0c9222d1101875))
+
 ## [1.0.8](https://github.com/skynet-org/dynpax/compare/1.0.7...1.0.8) (2026-04-26)
 
 ### Bug Fixes
