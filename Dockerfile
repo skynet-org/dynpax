@@ -44,7 +44,7 @@ RUN CC="/usr/bin/ccache /usr/bin/$(uname -m)-alpine-linux-musl-gcc" \
     LDFLAGS="-static -static-libgcc -static-libstdc++ -flto=auto -fno-pie -no-pie" \
     cmake --build build_${TARGETARCH} --parallel $(nproc)
 
-COPY . .
+COPY src src
 
 RUN CC="/usr/bin/ccache /usr/bin/$(uname -m)-alpine-linux-musl-gcc" \
     CXX="/usr/bin/ccache /usr/bin/$(uname -m)-alpine-linux-musl-g++" \
