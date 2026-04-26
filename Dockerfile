@@ -1,4 +1,3 @@
-# syntax=docker/dockerfile:1
 FROM alpine:3.23 AS builder
 ARG TARGETARCH
 
@@ -17,11 +16,10 @@ WORKDIR /src/dynpax
 RUN mkdir -p build_${TARGETARCH}
 
 COPY CMakeLists.txt /src/dynpax/
+
 COPY cmake/ /src/dynpax/cmake
 
-RUN --mount=type=cache,target=/src/dynpax/build_${TARGETARCH} \
-    --mount=type=cache,target=/ccache_${TARGETARCH} \
-    CC="/usr/bin/ccache /usr/bin/$(uname -m)-alpine-linux-musl-gcc" \
+RUN CC="/usr/bin/ccache /usr/bin/$(uname -m)-alpine-linux-musl-gcc" \
     CXX="/usr/bin/ccache /usr/bin/$(uname -m)-alpine-linux-musl-g++" \
     AR=/usr/bin/$(uname -m)-alpine-linux-musl-ar \
     NM=/usr/bin/$(uname -m)-alpine-linux-musl-nm \
@@ -37,9 +35,7 @@ RUN --mount=type=cache,target=/src/dynpax/build_${TARGETARCH} \
     -DDEPENDENCIES_ONLY=ON \
     -DCMAKE_INSTALL_PREFIX=/opt/dynpax
 
-RUN --mount=type=cache,target=/src/dynpax/build_${TARGETARCH} \
-    --mount=type=cache,target=/ccache_${TARGETARCH} \
-    CC="/usr/bin/ccache /usr/bin/$(uname -m)-alpine-linux-musl-gcc" \
+RUN CC="/usr/bin/ccache /usr/bin/$(uname -m)-alpine-linux-musl-gcc" \
     CXX="/usr/bin/ccache /usr/bin/$(uname -m)-alpine-linux-musl-g++" \
     AR=/usr/bin/$(uname -m)-alpine-linux-musl-ar \
     NM=/usr/bin/$(uname -m)-alpine-linux-musl-nm \
@@ -52,9 +48,7 @@ RUN --mount=type=cache,target=/src/dynpax/build_${TARGETARCH} \
 
 COPY . .
 
-RUN --mount=type=cache,target=/src/dynpax/build_${TARGETARCH} \
-    --mount=type=cache,target=/ccache_${TARGETARCH} \
-    CC="/usr/bin/ccache /usr/bin/$(uname -m)-alpine-linux-musl-gcc" \
+RUN CC="/usr/bin/ccache /usr/bin/$(uname -m)-alpine-linux-musl-gcc" \
     CXX="/usr/bin/ccache /usr/bin/$(uname -m)-alpine-linux-musl-g++" \
     AR=/usr/bin/$(uname -m)-alpine-linux-musl-ar \
     NM=/usr/bin/$(uname -m)-alpine-linux-musl-nm \
@@ -70,9 +64,7 @@ RUN --mount=type=cache,target=/src/dynpax/build_${TARGETARCH} \
     -DFETCHCONTENT_FULLY_DISCONNECTED=ON \
     -DCMAKE_INSTALL_PREFIX=/opt/dynpax --fresh
 
-RUN --mount=type=cache,target=/src/dynpax/build_${TARGETARCH} \
-    --mount=type=cache,target=/ccache_${TARGETARCH} \
-    CC="/usr/bin/ccache /usr/bin/$(uname -m)-alpine-linux-musl-gcc" \
+RUN CC="/usr/bin/ccache /usr/bin/$(uname -m)-alpine-linux-musl-gcc" \
     CXX="/usr/bin/ccache /usr/bin/$(uname -m)-alpine-linux-musl-g++" \
     AR=/usr/bin/$(uname -m)-alpine-linux-musl-ar \
     NM=/usr/bin/$(uname -m)-alpine-linux-musl-nm \
