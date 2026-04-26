@@ -70,7 +70,7 @@ struct Executable::Impl
             {
                 auto lib = todo.front();
                 auto path = LibraryResolver::resolveLibrary(lib);
-                if (!path)
+                if (!path.has_value())
                 {
                     throw std::runtime_error{fmt::format(
                         "Failed to resolve library {}: {}", lib,

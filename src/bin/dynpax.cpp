@@ -15,7 +15,7 @@ auto main(int argc, char *argv[]) -> int
 {
     dynpax::App app{"dynpax"};
     auto parseResult = app.parse(argc, argv);
-    if (!parseResult)
+    if (!parseResult.has_value())
     {
         return parseResult.error();
     }
@@ -43,56 +43,29 @@ auto main(int argc, char *argv[]) -> int
     {
         // Example of very easy to read and follow functional style
         // programming using C++23, enjoy! Ha-ha:)
-        if (auto interpreterResult =
-                binary.interpreter()
-                    .and_then([](auto &&optInterpreter)
-                                  -> std::expected<
-                                      fs::path, std::runtime_error> {
-                        return optInterpreter
-                            .transform([](auto &&value)
-                                           -> std::expected<
-                                               fs::path,
-                                               std::runtime_error> {
-                                return value;
-                            })
-                            .value_or(
-                                std::unexpected(std::runtime_error{
-                                    "binary does not contain "
-                                    "interpreter section to read"}))
-                            .value();
-                    })
-                    .and_then([&fileManager](const auto &src)
-                                  -> std::expected<
-                                      fs::path, std::runtime_error> {
-                        const auto dst =
-                            fileManager.joinFakeRoot({src});
-                        fmt::println("Copy {} => {}", src.string(),
-                                     dst.string());
-                        return dynpax::FileManager::copyFile(src, dst)
-                                   ? std::expected<
-                                         fs::path,
-                                         std::runtime_error>{dst}
-                                   : std::unexpected(
-                                         std::runtime_error{
-                                             "failed to copy "
-                                             "interpreter: "
-                                             "filesystem error"});
-                    })
-                    .and_then([&binary]([[maybe_unused]] const auto
-                                            &newInterpreter)
-                                  -> std::expected<
-                                      void, std::runtime_error> {
-                        // TODO: still does not work ...
-                        // fmt::println("Patch interpreter to {}",
-                        //              newInterpreter.string());
-                        // binary.interpreter(newInterpreter);
-                        return std::expected<void,
-                                             std::runtime_error>{};
-                    });
-            !interpreterResult)
+        auto interpreter = binary.interpreter();
+        if (!interpreter)
         {
-            fmt::println("Error: {}",
-                         interpreterResult.error().what());
+            fmt::println(
+                "Error: failed to read interpreter section: {}",
+                interpreter.error().what());
+            return 1;
+        }
+        if (!interpreter.value())
+        {
+            fmt::println(
+                "Error: binary does not contain interpreter section");
+            return 1;
+        }
+
+        const auto src = interpreter.value().value();
+        const auto dst = fileManager.joinFakeRoot({src});
+        fmt::println("Copy {} => {}", src.string(), dst.string());
+        if (!dynpax::FileManager::copyFile(src, dst))
+        {
+            fmt::println(
+                "Error: failed to copy interpreter: {} => {}",
+                src.string(), dst.string());
             return 1;
         }
     }
