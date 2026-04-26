@@ -4,11 +4,7 @@ on:
     pull_request:
         types: [ opened, synchronize, reopened, closed ]
         branches:
-            - "release/**"
-            - "feature/**"
-            - "bugfix/**"
-            - "fix/**"
-
+            - main
 env:
     REGISTRY: ghcr.io
     REGISTRY_USER: ${{ github.actor }}
