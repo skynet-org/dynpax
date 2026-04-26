@@ -1,8 +1,13 @@
 name: Build and Test
 
 on:
-    push:
-        branches: [ main ]
+    pull_request:
+        types: [ opened, synchronize, reopened, closed ]
+        branches:
+            - "release/**"
+            - "feature/**"
+            - "bugfix/**"
+            - "fix/**"
 
 env:
     REGISTRY: ghcr.io
@@ -24,7 +29,6 @@ permissions:
 jobs:
     build_amd64:
         runs-on: [ self-hosted, X64 ]
-        if: github.event_name != 'release'
         timeout-minutes: 720
         steps:
             - uses: actions/checkout@v6
@@ -46,13 +50,14 @@ jobs:
                   push: true
                   platforms: linux/amd64
                   tags: ${{ env.REGISTRY }}/${{ env.NAME }}:amd64-tmp
-                  cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ env.NAME }}:amd64-cacheimage
-                  cache-to: type=registry,ref=${{ env.REGISTRY }}/${{ env.NAME }}:amd64-cacheimage,mode=max
+                  cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ env.NAME
+                      }}:amd64-cacheimage
+                  cache-to: type=registry,ref=${{ env.REGISTRY }}/${{ env.NAME
+                      }}:amd64-cacheimage,mode=max
                   annotations: |
                       arch=amd64
     build_arm64:
         runs-on: [ self-hosted, ARM64 ]
-        if: github.event_name != 'release'
         timeout-minutes: 720
         steps:
             - uses: actions/checkout@v6
@@ -74,14 +79,16 @@ jobs:
                   push: true
                   platforms: linux/arm64
                   tags: ${{ env.REGISTRY }}/${{ env.NAME }}:arm64-tmp
-                  cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ env.NAME }}:arm64-cacheimage
-                  cache-to: type=registry,ref=${{ env.REGISTRY }}/${{ env.NAME }}:arm64-cacheimage,mode=max
+                  cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ env.NAME
+                      }}:arm64-cacheimage
+                  cache-to: type=registry,ref=${{ env.REGISTRY }}/${{ env.NAME
+                      }}:arm64-cacheimage,mode=max
                   annotations: |
                       arch=arm64
 
     bump-version:
         runs-on: [ self-hosted, X64 ]
-        if: github.event_name != 'release'
+        if: github.event.pull_request.merged == true
         needs:
             - build_amd64
             - build_arm64
