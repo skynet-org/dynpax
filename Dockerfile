@@ -77,4 +77,5 @@ FROM scratch AS runtime
 
 COPY --from=builder /opt/dynpax/bin/dynpax /opt/dynpax/bin/dynpax
 
+ENTRYPOINT [ "/opt/dynpax/bin/dynpax" ]
 CMD [ "/opt/dynpax/bin/dynpax" ]

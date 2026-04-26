@@ -36,7 +36,8 @@ jobs:
               id: image
               env:
                   REPOSITORY: ${{ github.repository }}
-              run: echo "name=ghcr.io/${REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+              run: |
+                echo "name=ghcr.io/${REPOSITORY,,}" >> "$GITHUB_OUTPUT"
             - name: Set up Docker Buildx
               uses: docker/setup-buildx-action@v4
             - name: Login to GHCR
