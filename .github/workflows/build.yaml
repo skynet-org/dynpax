@@ -37,10 +37,6 @@ jobs:
               env:
                   REPOSITORY: ${{ github.repository }}
               run: echo "name=ghcr.io/${REPOSITORY,,}" >> "$GITHUB_OUTPUT"
-            - name: Set up QEMU
-              uses: docker/setup-qemu-action@v4
-              with:
-                  platforms: linux/amd64
             - name: Set up Docker Buildx
               uses: docker/setup-buildx-action@v4
             - name: Login to GHCR
@@ -53,7 +49,6 @@ jobs:
               uses: docker/build-push-action@v7
               with:
                   push: true
-                  platforms: linux/amd64
                   tags: |
                       ${{ steps.image.outputs.name }}:amd64-tmp
                   cache-from: |
@@ -72,10 +67,6 @@ jobs:
               env:
                   REPOSITORY: ${{ github.repository }}
               run: echo "name=ghcr.io/${REPOSITORY,,}" >> "$GITHUB_OUTPUT"
-            - name: Set up QEMU
-              uses: docker/setup-qemu-action@v4
-              with:
-                  platforms: linux/arm64
             - name: Set up Docker Buildx
               uses: docker/setup-buildx-action@v4
             - name: Login to GHCR
@@ -88,7 +79,6 @@ jobs:
               uses: docker/build-push-action@v7
               with:
                   push: true
-                  platforms: linux/arm64
                   tags: |
                       ${{ steps.image.outputs.name }}:arm64-tmp
                   cache-from: |
