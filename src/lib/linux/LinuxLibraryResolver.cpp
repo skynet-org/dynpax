@@ -28,6 +28,11 @@ auto LinuxLibraryResolver::resolveLibrary(const std::string &name)
     std::lock_guard lock{dlMutex};
     std::unique_ptr<void, decltype(&handleCloser)> handle(
         dlopen(name.c_str(), RTLD_LAZY), &handleCloser);
+    if (!handle)
+    {
+        return std::unexpected(std::runtime_error{fmt::format(
+            "Failed to load library: {}", dlerror())}); // NOLINT
+    }
 
     struct link_map *link_map_ptr{nullptr};
     if (dlinfo(handle.get(), RTLD_DI_LINKMAP,
