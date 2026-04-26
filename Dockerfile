@@ -1,7 +1,7 @@
 FROM alpine:3.23 AS builder
-ARG TARGETARCH
 
-ENV CCACHE_DIR=/ccache_${TARGETARCH}
+ENV CCACHE_DIR=/ccache
+
 ENV CCACHE_MAXSIZE="5G"
 
 RUN apk update && apk upgrade --no-cache && \
@@ -12,8 +12,6 @@ RUN apk update && apk upgrade --no-cache && \
     musl-dev libstdc++-dev ccache
 
 WORKDIR /src/dynpax
-
-RUN mkdir -p build_${TARGETARCH}
 
 COPY CMakeLists.txt /src/dynpax/
 
