@@ -1,3 +1,9 @@
+## [1.0.4](https://github.com/skynet-org/dynpax/compare/1.0.3...1.0.4) (2026-04-26)
+
+### Bug Fixes
+
+* pipelines split ([#6](https://github.com/skynet-org/dynpax/issues/6)) ([8e17245](https://github.com/skynet-org/dynpax/commit/8e17245ea30869500ecccb6ad242caa5958f8a5d))
+
 ## [1.0.3](https://github.com/skynet-org/dynpax/compare/1.0.2...1.0.3) (2026-04-26)
 
 ### Bug Fixes
