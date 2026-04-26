@@ -1,4 +1,4 @@
-FROM docker.io/library/dynpax:latest AS tool
+FROM ghcr.io/skynet-org/dynpax:latest AS tool
 
 FROM ubuntu:24.04 AS runtime
 
