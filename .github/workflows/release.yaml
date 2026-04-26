@@ -12,7 +12,7 @@ env:
     DOCKER_BUILDKIT: "1"
 
 concurrency:
-    group: release-workflow
+    group: release-workflow-${{ github.workflow }}-${{ github.ref }}
     cancel-in-progress: false
 
 permissions:
@@ -23,6 +23,7 @@ permissions:
 jobs:
     release_amd64:
         runs-on: [ self-hosted, X64 ]
+        timeout-minutes: 720
         if: startsWith(github.ref, 'refs/tags/')
         steps:
             - name: Tag Name
@@ -63,7 +64,8 @@ jobs:
                       arch=amd64
 
     release_arm64:
-        runs-on: [ self-hosted, ARM64 ]
+        timeout-minutes: 720
+        runs-on: [ self-hosted, linux, ARM64 ]
         if: startsWith(github.ref, 'refs/tags/')
         steps:
             - name: Tag Name
@@ -105,7 +107,8 @@ jobs:
                   annotations: |
                       arch=arm64
     release:
-        runs-on: [ self-hosted, X64 ]
+        timeout-minutes: 720
+        runs-on: [ self-hosted, linux, X64 ]
         if: startsWith(github.ref, 'refs/tags/')
         needs:
             - release_amd64
