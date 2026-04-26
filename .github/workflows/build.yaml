@@ -5,6 +5,9 @@ on:
         types: [ opened, synchronize, reopened, closed ]
         branches:
             - main
+    push:
+        branches:
+            - '!main'
 env:
     REGISTRY: ghcr.io
     REGISTRY_USER: ${{ github.actor }}
@@ -78,31 +81,3 @@ jobs:
                   annotations: |
                       arch=arm64
 
-    bump-version:
-        runs-on: [ self-hosted, X64 ]
-        if: github.event.pull_request.merged == true
-        needs:
-            - build_amd64
-            - build_arm64
-        steps:
-            - uses: actions/checkout@v6
-              with:
-                  fetch-depth: 0
-                  ref: ${{ github.ref }}
-            - name: Setup Node.js
-              uses: actions/setup-node@v6
-              with:
-                  node-version: "lts/*"
-            - name: Install modules
-              run: |
-                  npm install --save-dev @semantic-release/changelog \
-                      @semantic-release/commit-analyzer \
-                      @semantic-release/release-notes-generator \
-                      @semantic-release/github \
-                      @semantic-release/git \
-                      conventional-changelog-conventionalcommits
-            - name: Automatic Release
-              env:
-                  GITHUB_TOKEN: ${{ secrets.GH_PAT }}
-              run: |
-                  npx semantic-release
