@@ -27,7 +27,7 @@ permissions:
     packages: write
 
 jobs:
-    build_amd64:
+    build-amd64:
         runs-on: [ self-hosted, X64 ]
         timeout-minutes: 720
         steps:
@@ -62,7 +62,7 @@ jobs:
                       type=registry,ref=${{ steps.image.outputs.name }}:amd64-cacheimage,mode=max
                   annotations: |
                       arch=amd64
-    build_arm64:
+    build-arm64:
         runs-on: [ self-hosted, ARM64 ]
         timeout-minutes: 720
         steps:
