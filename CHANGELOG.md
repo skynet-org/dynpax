@@ -1,3 +1,9 @@
+## [1.0.3](https://github.com/skynet-org/dynpax/compare/1.0.2...1.0.3) (2026-04-26)
+
+### Bug Fixes
+
+* improve caching ([#5](https://github.com/skynet-org/dynpax/issues/5)) ([96bfc4e](https://github.com/skynet-org/dynpax/commit/96bfc4e741a09abc047de76fa86aadd05c435899))
+
 ## [1.0.2](https://github.com/skynet-org/dynpax/compare/1.0.1...1.0.2) (2026-04-26)
 
 ### Bug Fixes
