@@ -8,9 +8,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     tree \
     && rm -rf /var/lib/apt/lists/*
 
-COPY --from=tool /opt/dynpax/bin/dynpax /bin/dynpax
-
-RUN /bin/dynpax -t /usr/bin/bash -f /opt/fakeroot -i
+RUN /opt/dynpax/bin/dynpax -t /usr/bin/bash -f /opt/fakeroot -i
 
 RUN tree /opt/fakeroot/
 
