@@ -9,4 +9,7 @@ module.exports = {
         "@semantic-release/changelog",
         "@semantic-release/git",
     ],
+    release: {
+        message: "chore(release): ${nextRelease.version}"
+    }
 };
