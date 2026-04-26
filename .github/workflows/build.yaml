@@ -17,7 +17,7 @@ env:
     DOCKER_BUILDKIT: "1"
 
 concurrency:
-    group: release-workflow
+    group: build-workflow
     cancel-in-progress: true
 
 permissions:
