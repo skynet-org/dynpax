@@ -1,4 +1,5 @@
 #include "BundleBuilder.hpp"
+#include "BundleLayout.hpp"
 #include "BundlePaths.hpp"
 #include "Executable.hpp"
 #include "FakeRoot.hpp"
@@ -30,7 +31,9 @@ auto BundleBuilder::build(const fs::path &target,
 
     auto result = BundleBuildResult{};
     result.bundleRoot = fakeRoot.path();
-    result.manifest = executable.dependencyManifest(includeInterpreter);
+    result.layoutPolicy = fakeRoot.layoutPolicy();
+    result.manifest = executable.dependencyManifest(
+        includeInterpreter, result.layoutPolicy);
 
     for (const auto &entry : result.manifest.entries)
     {
@@ -96,8 +99,10 @@ auto BundleBuilder::rewritePayloads(
 
         if (entry.kind == BundleEntryKind::Executable)
         {
+            auto runpath =
+                bundle_runpath(result.manifest, entry, result.layoutPolicy);
             sourceExecutable.rpath(options.rpath);
-            sourceExecutable.runpath(options.runpath);
+            sourceExecutable.runpath(runpath);
             if (!sourceExecutable.write(outputPath))
             {
                 return fmt::format(
@@ -114,8 +119,10 @@ auto BundleBuilder::rewritePayloads(
                                outputPath.string());
         }
 
+        auto runpath =
+            bundle_runpath(result.manifest, entry, result.layoutPolicy);
         outputElf.rpath(options.rpath);
-        outputElf.runpath(options.runpath);
+        outputElf.runpath(runpath);
         if (!outputElf.write(outputPath))
         {
             return fmt::format("failed to rewrite bundled ELF {}",

@@ -1,5 +1,6 @@
 #include "BundleVerifier.hpp"
 #include "BundleBuilder.hpp"
+#include "BundleLayout.hpp"
 #include "BundlePaths.hpp"
 #include "Executable.hpp"
 #include <filesystem>
@@ -39,38 +40,40 @@ auto BundleVerifier::verify(
     -> BundleVerificationReport
 {
     auto report = BundleVerificationReport{};
-    if (!std::filesystem::exists(result.bundleRoot / "bin"))
+    auto layoutPolicy =
+        options.layoutPolicy.value_or(result.layoutPolicy);
+
+    for (const auto &directory : compatibility_directories(layoutPolicy))
     {
-        report.issues.push_back(
-            {result.bundleRoot / "bin", "bundle missing bin directory"});
+        auto outputPath = materialized_path(result.bundleRoot, directory);
+        if (!std::filesystem::exists(outputPath))
+        {
+            report.issues.push_back(
+                {outputPath, "bundle missing compatibility directory"});
+        }
     }
-    if (!std::filesystem::exists(result.bundleRoot / "lib64"))
+
+    for (const auto &[linkPath, targetPath] :
+         compatibility_symlinks(layoutPolicy))
     {
-        report.issues.push_back({result.bundleRoot / "lib64",
-                                 "bundle missing lib64 directory"});
-    }
-    if (!std::filesystem::exists(result.bundleRoot / "lib") ||
-        !std::filesystem::is_symlink(result.bundleRoot / "lib"))
-    {
-        report.issues.push_back(
-            {result.bundleRoot / "lib", "bundle missing lib symlink"});
-    }
-    if (!std::filesystem::exists(result.bundleRoot / "usr/lib") ||
-        !std::filesystem::is_symlink(result.bundleRoot / "usr/lib"))
-    {
-        report.issues.push_back({result.bundleRoot / "usr/lib",
-                                 "bundle missing usr/lib symlink"});
-    }
-    if (!std::filesystem::exists(result.bundleRoot / "usr/lib64") ||
-        !std::filesystem::is_symlink(result.bundleRoot / "usr/lib64"))
-    {
-        report.issues.push_back({result.bundleRoot / "usr/lib64",
-                                 "bundle missing usr/lib64 symlink"});
+        auto outputPath = materialized_path(result.bundleRoot, linkPath);
+        if (!std::filesystem::exists(outputPath) ||
+            !std::filesystem::is_symlink(outputPath))
+        {
+            report.issues.push_back(
+                {outputPath, "bundle missing compatibility symlink"});
+            continue;
+        }
+        if (std::filesystem::read_symlink(outputPath) != targetPath)
+        {
+            report.issues.push_back(
+                {outputPath, "bundle compatibility symlink target mismatch"});
+        }
     }
 
     for (const auto &entry : result.manifest.entries)
     {
-        verifyEntry(result, entry, options, report);
+        verifyEntry(result, entry, layoutPolicy, report);
     }
 
     return report;
@@ -78,7 +81,7 @@ auto BundleVerifier::verify(
 
 auto BundleVerifier::verifyEntry(
     const BundleBuildResult &result, const BundleEntry &entry,
-    const BundleVerificationOptions &options,
+    BundleLayoutPolicy layoutPolicy,
     BundleVerificationReport &report) const -> void
 {
     auto outputPath = materialized_path(result.bundleRoot, entry.bundledPath);
@@ -172,8 +175,9 @@ auto BundleVerifier::verifyEntry(
             {outputPath, "bundled ELF should not retain RPATH"});
     }
 
-    if (runpath->value().size() != 1 ||
-        runpath->value().front() != options.expectedRunpath)
+    auto expectedRunpath =
+        bundle_runpath(result.manifest, entry, layoutPolicy);
+    if (runpath->value() != expectedRunpath)
     {
         report.issues.push_back(
             {outputPath, "bundled ELF RUNPATH mismatch"});

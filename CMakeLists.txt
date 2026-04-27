@@ -30,6 +30,7 @@ if (NOT DEPENDENCIES_ONLY)
     add_library(dynpax_core STATIC
             src/lib/App.cpp
             src/lib/BundleBuilder.cpp
+            src/lib/BundleLayout.cpp
             src/lib/Executable.cpp
             src/lib/FakeRoot.cpp
             src/lib/Resolver.cpp
@@ -206,6 +207,7 @@ if (NOT DEPENDENCIES_ONLY)
             add_custom_target(dynpax_docker_matrix
                     COMMAND "${CMAKE_COMMAND}" -E env
                             "DYNPAX_DOCKER_LOG_DIR=${CMAKE_CURRENT_BINARY_DIR}/tests/docker/logs"
+                            "DYNPAX_DOCKER_WORK_ROOT=${CMAKE_CURRENT_BINARY_DIR}/tests/docker/work"
                             bash "${CMAKE_CURRENT_SOURCE_DIR}/tests/docker/run-matrix.sh"
                             ${DYNPAX_DOCKER_MATRIX_ARGS}
                     DEPENDS ${DYNPAX_DOCKER_MATRIX_DEPENDS}

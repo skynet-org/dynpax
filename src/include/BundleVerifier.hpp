@@ -1,10 +1,12 @@
 #pragma once
 
 #include "BundleBuilder.hpp"
+#include "BundleLayout.hpp"
 #include "BundleManifest.hpp"
 #include "Resolver.hpp"
 #include <filesystem>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -21,7 +23,7 @@ struct BundleVerificationIssue
 
 struct BundleVerificationOptions
 {
-    std::string expectedRunpath{"$ORIGIN/../lib64"};
+    std::optional<BundleLayoutPolicy> layoutPolicy;
 };
 
 struct BundleVerificationReport
@@ -46,7 +48,7 @@ class BundleVerifier
   private:
     auto verifyEntry(const BundleBuildResult &result,
                      const BundleEntry &entry,
-                     const BundleVerificationOptions &options,
+                                         BundleLayoutPolicy layoutPolicy,
                      BundleVerificationReport &report) const -> void;
 
     std::shared_ptr<Resolver> resolver_;

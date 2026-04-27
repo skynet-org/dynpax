@@ -1,4 +1,5 @@
 #include "FakeRoot.hpp"
+#include "BundleLayout.hpp"
 #include <filesystem>
 #include <fmt/printf.h>
 #include <fstream>
@@ -31,23 +32,6 @@ auto join(const fs::path &fakeRoot,
            (path.is_absolute() ? path.lexically_relative("/") : path);
     }
 
-auto copy(const fs::path &fakeRoot, const fs::path &subdir,
-          const fs::path &src, std::error_code &errc) -> fs::path
-{
-    auto perm = fs::status(src).permissions();
-    auto dst = join(fakeRoot, {subdir, src.filename()});
-    if (!fs::exists(dst.parent_path()))
-    {
-        fs::create_directories(dst.parent_path(), errc);
-    }
-    fs::copy_file(src, dst,
-                  fs::copy_options::overwrite_existing |
-                      fs::copy_options::recursive,
-                  errc);
-    fs::permissions(dst, perm);
-    return dst;
-}
-
 auto ensure_directory_symlink(const fs::path &path,
                               const fs::path &target,
                               std::error_code &errc) -> void
@@ -70,35 +54,28 @@ auto ensure_directory_symlink(const fs::path &path,
 }
 
 auto bootstrap_runtime_layout(const fs::path &fakeRoot,
+                              BundleLayoutPolicy layoutPolicy,
                               std::error_code &errc) -> void
 {
-    fs::create_directories(fakeRoot / "bin", errc);
-    if (errc)
+    for (const auto &directory : compatibility_directories(layoutPolicy))
     {
-        return;
-    }
-    fs::create_directories(fakeRoot / "lib64", errc);
-    if (errc)
-    {
-        return;
-    }
-    fs::create_directories(fakeRoot / "usr", errc);
-    if (errc)
-    {
-        return;
+        fs::create_directories(join(fakeRoot, directory), errc);
+        if (errc)
+        {
+            return;
+        }
     }
 
-    ensure_directory_symlink(fakeRoot / "lib", "lib64", errc);
-    if (errc)
+    for (const auto &[linkPath, targetPath] :
+         compatibility_symlinks(layoutPolicy))
     {
-        return;
+        ensure_directory_symlink(join(fakeRoot, linkPath), targetPath,
+                                 errc);
+        if (errc)
+        {
+            return;
+        }
     }
-    ensure_directory_symlink(fakeRoot / "usr/lib", "../lib64", errc);
-    if (errc)
-    {
-        return;
-    }
-    ensure_directory_symlink(fakeRoot / "usr/lib64", "../lib64", errc);
 }
 
 auto copy_to(const fs::path &src, const fs::path &dst,
@@ -196,8 +173,10 @@ auto symlink_to(const fs::path &fakeRoot, const fs::path &bundlePath,
 
 } // namespace
 
-FakeRoot::FakeRoot(fs::path fakeRoot)
-    : m_fakeRoot{std::move(fakeRoot)}
+FakeRoot::FakeRoot(fs::path fakeRoot,
+                                     BundleLayoutPolicy layoutPolicy)
+        : m_fakeRoot{std::move(fakeRoot)},
+            m_layoutPolicy{layoutPolicy}
 {
 }
 
@@ -206,25 +185,39 @@ auto FakeRoot::path() const -> fs::path
     return m_fakeRoot;
 }
 
+auto FakeRoot::layoutPolicy() const -> BundleLayoutPolicy
+{
+    return m_layoutPolicy;
+}
+
 [[nodiscard]] auto FakeRoot::addLibrary(const fs::path &src,
                                         std::error_code &errc) const
     -> fs::path
 {
-    return copy(m_fakeRoot, "lib64", src, errc);
+    return copy_to(src,
+                   join(m_fakeRoot,
+                        bundle_path_for(m_layoutPolicy,
+                                        BundleEntryKind::SharedObject,
+                                        src)),
+                   errc);
 }
 
 [[nodiscard]] auto FakeRoot::binaryStub(const fs::path &src,
                                         std::error_code &errc) const
     -> fs::path
 {
-    return touch(m_fakeRoot, "bin", src, errc);
+    return touch_to(join(m_fakeRoot,
+                         bundle_path_for(m_layoutPolicy,
+                                         BundleEntryKind::Executable,
+                                         src)),
+                    fs::status(src).permissions(), errc);
 }
 
 [[nodiscard]] auto FakeRoot::materialize(const BundleEntry &entry,
                                          std::error_code &errc) const
     -> fs::path
 {
-    bootstrap_runtime_layout(m_fakeRoot, errc);
+    bootstrap_runtime_layout(m_fakeRoot, m_layoutPolicy, errc);
     if (errc)
     {
         return join(m_fakeRoot, entry.bundledPath);

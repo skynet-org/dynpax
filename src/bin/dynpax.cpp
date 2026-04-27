@@ -47,7 +47,8 @@ auto main(int argc, char *argv[]) -> int
             return parseResult.error();
         }
         dynpax::FakeRoot rootManager{
-            std::move(parseResult->fakeRoot)};
+            std::move(parseResult->fakeRoot),
+            parseResult->layoutPolicy};
 
         auto resolver = std::make_shared<dynpax::Resolver>();
         resolver->populate();
@@ -56,6 +57,9 @@ auto main(int argc, char *argv[]) -> int
         for (const auto &target : parseResult->targets)
         {
             fmt::println("Target: {}", target.string());
+            fmt::println("Layout policy: {}",
+                         dynpax::bundle_layout_policy_name(
+                             parseResult->layoutPolicy));
             auto buildResult =
                 builder.build(target, rootManager,
                               parseResult->includeInterpreter);

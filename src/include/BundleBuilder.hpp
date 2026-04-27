@@ -1,6 +1,7 @@
 #pragma once
 
 #include "BundleManifest.hpp"
+#include "BundleLayout.hpp"
 #include "FakeRoot.hpp"
 #include "Resolver.hpp"
 #include <expected>
@@ -20,6 +21,7 @@ struct Executable;
 struct BundleBuildResult
 {
     fs::path bundleRoot;
+    BundleLayoutPolicy layoutPolicy{BundleLayoutPolicy::FlatLib64};
     BundleManifest manifest;
     std::optional<fs::path> executableOutput;
     std::optional<fs::path> interpreterBundlePath;
@@ -28,7 +30,6 @@ struct BundleBuildResult
 struct BundleRewriteOptions
 {
     std::vector<std::string> rpath{""};
-    std::vector<std::string> runpath{"$ORIGIN/../lib64"};
 };
 
 class BundleBuilder

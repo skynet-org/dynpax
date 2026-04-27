@@ -1,4 +1,5 @@
 #pragma once
+#include "BundleLayout.hpp"
 #include "BundleManifest.hpp"
 #include "abstract/AbstractFileManager.hpp"
 #include <filesystem>
@@ -10,9 +11,13 @@ namespace fs = std::filesystem;
 
 struct FakeRoot : public AbstractFileManager<FakeRoot>
 {
-    explicit FakeRoot(fs::path fakeRoot);
+    explicit FakeRoot(
+        fs::path fakeRoot,
+        BundleLayoutPolicy layoutPolicy = BundleLayoutPolicy::FlatLib64);
 
     [[nodiscard]] auto path() const -> fs::path;
+
+    [[nodiscard]] auto layoutPolicy() const -> BundleLayoutPolicy;
 
     [[nodiscard]] auto addLibrary(const fs::path &src,
                                   std::error_code &errc) const
@@ -31,5 +36,6 @@ struct FakeRoot : public AbstractFileManager<FakeRoot>
 
   private:
     fs::path m_fakeRoot;
+        BundleLayoutPolicy m_layoutPolicy;
 };
 } // namespace dynpax

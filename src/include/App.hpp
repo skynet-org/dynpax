@@ -1,5 +1,6 @@
 #pragma once
 
+#include "BundleLayout.hpp"
 #include <expected>
 #include <filesystem>
 #include <memory>
@@ -17,7 +18,8 @@ struct App
     {
         std::vector<fs::path> targets;
         fs::path fakeRoot;
-        bool includeInterpreter;
+      BundleLayoutPolicy layoutPolicy{BundleLayoutPolicy::FlatLib64};
+      bool includeInterpreter{false};
     };
     using Result = std::expected<Params, int>;
 

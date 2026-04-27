@@ -1,4 +1,5 @@
 #include "App.hpp"
+#include "BundleLayout.hpp"
 #include <CLI/CLI.hpp>
 #include <exception>
 #include <expected>
@@ -14,6 +15,8 @@ using namespace std::string_literals;
 
 struct App::Impl
 {
+    std::string layoutPolicyName{std::string{
+        bundle_layout_policy_name(BundleLayoutPolicy::FlatLib64)}};
 
     explicit Impl(std::string_view name) : app{std::string{name}}
     {
@@ -27,6 +30,9 @@ struct App::Impl
             ->required();
         app.add_option("-f,--fake-root"s, params.fakeRoot,
                        "Fake root to be used as RUNPATH"s);
+        app.add_option(
+            "--layout-policy"s, layoutPolicyName,
+            "Bundle layout policy: flat-lib64 or preserve-source-tree"s);
         app.add_flag("-i,--interpreter"s, params.includeInterpreter,
                      "Add linker/interpreter to bundle"s);
     }
@@ -37,6 +43,15 @@ struct App::Impl
         {
             setup();
             app.parse(argc, argv);
+            auto layoutPolicy =
+                parse_bundle_layout_policy(layoutPolicyName);
+            if (!layoutPolicy.has_value())
+            {
+                throw CLI::ValidationError(
+                    "--layout-policy",
+                    "expected flat-lib64 or preserve-source-tree");
+            }
+            params.layoutPolicy = *layoutPolicy;
             for (auto &target : params.targets)
             {
                 target = fs::absolute(target.lexically_normal());

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "BundleManifest.hpp"
+#include "BundleLayout.hpp"
 #include "Resolver.hpp"
 #include <expected>
 #include <filesystem>
@@ -26,7 +27,9 @@ struct Executable
     void swap(Executable &rhs) noexcept;
 
     [[nodiscard]] auto dependencyManifest(
-        bool includeInterpreter = false) const
+        bool includeInterpreter = false,
+        BundleLayoutPolicy layoutPolicy =
+            BundleLayoutPolicy::FlatLib64) const
         -> BundleManifest;
 
     [[nodiscard]] auto interpreter() const

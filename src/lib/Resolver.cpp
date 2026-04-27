@@ -56,6 +56,24 @@ auto normalize_link_target(const fs::path &linkPath,
     return (linkPath.parent_path() / targetPath).lexically_normal();
 }
 
+auto collect_sorted_paths(const fs::path &root) -> std::vector<fs::path>
+{
+    auto errc = std::error_code{};
+    auto paths = std::vector<fs::path>{};
+    std::filesystem::recursive_directory_iterator iter(
+        root, std::filesystem::directory_options::skip_permission_denied |
+                  std::filesystem::directory_options::follow_directory_symlink,
+        errc);
+    for (const auto &entry : iter)
+    {
+        paths.push_back(entry.path());
+    }
+    std::ranges::sort(paths, [](const auto &left, const auto &right) {
+        return left.string() < right.string();
+    });
+    return paths;
+}
+
 } // namespace
 
 struct Resolver::Impl
@@ -177,18 +195,11 @@ struct Resolver::Impl
 
         if (fs::exists(ldConfigDir))
         {
-
-            std::filesystem::recursive_directory_iterator iter(
-                ldConfigDir, std::filesystem::directory_options::
-                                 skip_permission_denied |
-                             std::filesystem::directory_options::
-                                 follow_directory_symlink);
-
-            for (const auto &entry : iter)
+            for (const auto &entryPath : collect_sorted_paths(ldConfigDir))
             {
-                if (entry.is_regular_file())
+                if (fs::is_regular_file(entryPath))
                 {
-                    parse_ld_config_file(entry.path(), result);
+                    parse_ld_config_file(entryPath, result);
                 }
             }
         }
@@ -260,40 +271,32 @@ struct Resolver::Impl
             {
                 continue;
             }
-            std::filesystem::recursive_directory_iterator root_iter(
-                dir,
-                std::filesystem::directory_options::
-                        skip_permission_denied |
-                    std::filesystem::directory_options::
-                        follow_directory_symlink,
-                errc);
-            for (const auto &entry : root_iter)
+            for (const auto &entryPath : collect_sorted_paths(dir))
             {
-                if (entry.is_symlink())
+                if (fs::is_symlink(entryPath))
                 {
                     try
                     {
                         auto symlink_target =
                             std::filesystem::read_symlink(
-                            entry.path());
+                            entryPath);
                         auto resolved_path =
-                            normalize_link_target(entry.path(),
+                            normalize_link_target(entryPath,
                                                   symlink_target);
                         if (is_elf(resolved_path))
                         {
                             auto lookup_name =
-                                entry.path().filename().string();
+                                entryPath.filename().string();
                             auto canonical_path =
                                 canonicalize(resolved_path);
                             result.records.insert_or_assign(
                                 lookup_name,
-                                ResolvedRecord{lookup_name,
-                                               entry.path(),
+                                ResolvedRecord{lookup_name, entryPath,
                                                canonical_path});
                             register_alias_link(
                                 result.aliasLinksByCanonical,
                                 canonical_path,
-                                ResolvedSymlink{entry.path(),
+                                ResolvedSymlink{entryPath,
                                                 resolved_path});
                             continue;
                         }
@@ -302,20 +305,20 @@ struct Resolver::Impl
                     {
                         fmt::print(stderr,
                                    "Failed to resolve symlink: {}\n",
-                                   entry.path().string());
+                                   entryPath.string());
                     }
                 }
-                if (entry.is_regular_file() &&
+                if (fs::is_regular_file(entryPath) &&
                     !result.records.contains(
-                        entry.path().filename().string()) &&
-                    is_elf(entry.path()))
+                        entryPath.filename().string()) &&
+                    is_elf(entryPath))
                 {
                     auto lookup_name =
-                        entry.path().filename().string();
+                        entryPath.filename().string();
                     result.records.emplace(
                         lookup_name,
-                        ResolvedRecord{lookup_name, entry.path(),
-                                       canonicalize(entry.path())});
+                        ResolvedRecord{lookup_name, entryPath,
+                                       canonicalize(entryPath)});
                 }
             }
         }

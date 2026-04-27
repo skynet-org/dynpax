@@ -8,6 +8,7 @@ glibc_fixture=""
 musl_fixture=""
 log_dir="${DYNPAX_DOCKER_LOG_DIR:-}"
 docker_config="${DYNPAX_DOCKER_CONFIG:-}"
+work_root="${DYNPAX_DOCKER_WORK_ROOT:-}"
 
 usage() {
     cat <<'EOF'
@@ -67,7 +68,12 @@ if [[ -n "$musl_fixture" && ! -f "$musl_fixture" ]]; then
     exit 1
 fi
 
-work_root="$(mktemp -d "${TMPDIR:-/tmp}/dynpax-docker-matrix-XXXXXX")"
+if [[ -n "$work_root" ]]; then
+    rm -rf "$work_root"
+    mkdir -p "$work_root"
+else
+    work_root="$(mktemp -d "${TMPDIR:-/tmp}/dynpax-docker-matrix-XXXXXX")"
+fi
 cleanup() {
     rm -rf "$work_root"
 }
@@ -93,12 +99,53 @@ run_docker() {
 }
 
 bundle_fixture() {
-    local fixture_path="$1"
-    local bundle_root="$2"
-    local log_path="$3"
+    local layout_policy="$1"
+    local fixture_path="$2"
+    local bundle_root="$3"
+    local log_path="$4"
 
     mkdir -p "$bundle_root"
-    "$dynpax_bin" --target "$fixture_path" --fake-root "$bundle_root" --interpreter >"$log_path" 2>&1
+    "$dynpax_bin" \
+        --target "$fixture_path" \
+        --fake-root "$bundle_root" \
+        --layout-policy "$layout_policy" \
+        --interpreter >"$log_path" 2>&1
+}
+
+verify_flat_bundle_layout() {
+    local bundle_root="$1"
+
+    [[ -d "$bundle_root/lib64" ]]
+    [[ -L "$bundle_root/lib" ]]
+    [[ "$(readlink "$bundle_root/lib")" == "lib64" ]]
+    [[ -L "$bundle_root/usr/lib" ]]
+    [[ "$(readlink "$bundle_root/usr/lib")" == "../lib64" ]]
+    [[ -L "$bundle_root/usr/lib64" ]]
+    [[ "$(readlink "$bundle_root/usr/lib64")" == "../lib64" ]]
+}
+
+run_policy_matrix() {
+    local layout_policy="$1"
+    local fixture_label="$2"
+    local fixture_path="$3"
+    local executable_name="$4"
+    shift 4
+
+    local bundle_root="$work_root/${fixture_label}-${layout_policy}"
+    local bundle_log="$log_dir/${fixture_label}-${layout_policy}-bundle.log"
+
+    bundle_fixture "$layout_policy" "$fixture_path" "$bundle_root" "$bundle_log"
+    if [[ "$layout_policy" == "flat-lib64" ]]; then
+        verify_flat_bundle_layout "$bundle_root"
+    fi
+
+    while [[ $# -gt 0 ]]; do
+        local scenario_name="$1"
+        local image_name="$2"
+        run_chroot_case "${fixture_label}-${layout_policy}-${scenario_name}" \
+            "$image_name" "$bundle_root" "$executable_name"
+        shift 2
+    done
 }
 
 run_chroot_case() {
@@ -115,17 +162,22 @@ run_chroot_case() {
         -lc "chroot /bundle /bin/${executable_name}" >"$log_path" 2>&1
 }
 
-glibc_bundle="$work_root/glibc-bundle"
-bundle_fixture "$glibc_fixture" "$glibc_bundle" "$log_dir/glibc-bundle.log"
-
-run_chroot_case ubuntu-24.04 ubuntu:24.04 "$glibc_bundle" "$(basename "$glibc_fixture")"
-run_chroot_case debian-stable-slim debian:stable-slim "$glibc_bundle" "$(basename "$glibc_fixture")"
-run_chroot_case alpine-latest-glibc alpine:latest "$glibc_bundle" "$(basename "$glibc_fixture")"
+for layout_policy in flat-lib64 preserve-source-tree; do
+    run_policy_matrix "$layout_policy" glibc "$glibc_fixture" \
+        "$(basename "$glibc_fixture")" \
+        ubuntu-24.04 ubuntu:24.04 \
+        debian-stable-slim debian:stable-slim \
+        alpine-latest alpine:latest
+done
 
 if [[ -n "$musl_fixture" ]]; then
-    musl_bundle="$work_root/musl-bundle"
-    bundle_fixture "$musl_fixture" "$musl_bundle" "$log_dir/musl-bundle.log"
-    run_chroot_case alpine-latest-musl alpine:latest "$musl_bundle" "$(basename "$musl_fixture")"
+    for layout_policy in flat-lib64 preserve-source-tree; do
+        run_policy_matrix "$layout_policy" musl "$musl_fixture" \
+            "$(basename "$musl_fixture")" \
+            ubuntu-24.04 ubuntu:24.04 \
+            debian-stable-slim debian:stable-slim \
+            alpine-latest alpine:latest
+    done
 else
     echo "Skipping musl Docker scenario because no musl fixture was provided."
 fi

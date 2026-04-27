@@ -1,5 +1,6 @@
 #include "Executable.hpp"
 #include "BundleManifest.hpp"
+#include "BundleLayout.hpp"
 #include "LIEF/Abstract/Binary.hpp"
 #include "LIEF/Abstract/Parser.hpp"
 #include "LIEF/ELF/Binary.hpp"
@@ -36,21 +37,27 @@ struct PendingDependency
     std::vector<fs::path> searchRoots;
 };
 
-auto default_bundle_path(BundleEntryKind kind,
-                         const fs::path &filePath) -> fs::path
+auto fallback_libc_name(
+    const std::vector<std::string> &importedLibraries)
+    -> std::optional<std::string>
 {
-    switch (kind)
+    for (const auto &library : importedLibraries)
     {
-    case BundleEntryKind::Executable:
-        return fs::path{"/bin"} / filePath.filename();
-    case BundleEntryKind::Interpreter:
-    case BundleEntryKind::SharedObject:
-    case BundleEntryKind::SymlinkAlias:
-    case BundleEntryKind::Unknown:
-        return fs::path{"/lib64"} / filePath.filename();
+        if (library == "libc.so.6")
+        {
+            return library;
+        }
     }
-
-    return fs::path{"/lib64"} / filePath.filename();
+    for (const auto &library : importedLibraries)
+    {
+        if (library.starts_with("libc.musl-") ||
+            (library.starts_with("libc.") &&
+             library.ends_with(".so.1")))
+        {
+            return library;
+        }
+    }
+    return std::nullopt;
 }
 
 } // namespace
@@ -193,6 +200,8 @@ struct Executable::Impl
         const fs::path &sourcePath,
         const std::unique_ptr<LIEF::Binary> &binary,
         std::string requestedName, BundleEntryKind kind,
+        BundleLayoutPolicy layoutPolicy,
+        std::optional<fs::path> fallbackLibraryDirectory = std::nullopt,
         fs::path bundledPath = {})
         -> BundleEntry
     {
@@ -200,9 +209,11 @@ struct Executable::Impl
         entry.sourcePath = sourcePath;
         entry.kind = kind;
         entry.requestedName = std::move(requestedName);
-        entry.bundledPath = bundledPath.empty()
-                                ? default_bundle_path(kind, sourcePath)
-                                : std::move(bundledPath);
+        entry.bundledPath =
+            bundledPath.empty()
+                ? bundle_path_for(layoutPolicy, kind, sourcePath,
+                                  fallbackLibraryDirectory)
+                : std::move(bundledPath);
         if (binary && LIEF::ELF::Binary::classof(binary.get()))
         {
             auto &elf =
@@ -214,7 +225,8 @@ struct Executable::Impl
         return entry;
     }
 
-    [[nodiscard]] auto dependencyManifest(bool includeInterpreter) const
+    [[nodiscard]] auto dependencyManifest(
+        bool includeInterpreter, BundleLayoutPolicy layoutPolicy) const
         -> BundleManifest
     {
         auto manifest = BundleManifest{};
@@ -227,7 +239,7 @@ struct Executable::Impl
 
         manifest.entries.push_back(makeEntry(
             filePath_, binary_, filePath_.filename().string(),
-            BundleEntryKind::Executable));
+            BundleEntryKind::Executable, layoutPolicy));
 
         auto interpreter_path = std::optional<fs::path>{};
         auto interpreter_canonical_key = std::optional<std::string>{};
@@ -255,6 +267,33 @@ struct Executable::Impl
         auto imported = importedLibraries(binary_);
         auto initialSearchRoots =
             loaderSearchRoots(binary_, filePath_);
+        auto fallbackLibraryDirectory =
+            std::optional<fs::path>{};
+        if (layoutPolicy == BundleLayoutPolicy::PreserveSourceTree)
+        {
+            if (auto libcName = fallback_libc_name(imported);
+                libcName.has_value())
+            {
+                auto libcDependency = resolver_->resolve(
+                    *libcName, initialSearchRoots);
+                if (libcDependency.has_value())
+                {
+                    fallbackLibraryDirectory = bundle_path_for(
+                        layoutPolicy,
+                        BundleEntryKind::SharedObject,
+                        libcDependency->canonicalPath())
+                                                   .parent_path();
+                }
+            }
+            if (!fallbackLibraryDirectory.has_value() &&
+                interpreter_path.has_value())
+            {
+                fallbackLibraryDirectory = bundle_path_for(
+                    layoutPolicy, BundleEntryKind::Interpreter,
+                    *interpreter_path)
+                                               .parent_path();
+            }
+        }
         auto todo = std::queue<PendingDependency>{};
         for (const auto &importedLibrary : imported)
         {
@@ -287,9 +326,9 @@ struct Executable::Impl
                 continue;
             }
 
-            auto canonical_bundle_path = default_bundle_path(
-                BundleEntryKind::SharedObject,
-                resolved->canonicalPath());
+            auto canonical_bundle_path = bundle_path_for(
+                layoutPolicy, BundleEntryKind::SharedObject,
+                resolved->canonicalPath(), fallbackLibraryDirectory);
             if (seen_payloads.insert(canonical_key).second)
             {
                 auto dependency_binary = LIEF::Parser::parse(
@@ -302,6 +341,7 @@ struct Executable::Impl
                 manifest.entries.push_back(makeEntry(
                     resolved->canonicalPath(), dependency_binary,
                     requested_name, BundleEntryKind::SharedObject,
+                    layoutPolicy, fallbackLibraryDirectory,
                     canonical_bundle_path));
 
                 auto nested = importedLibraries(dependency_binary);
@@ -316,9 +356,9 @@ struct Executable::Impl
 
             for (const auto &aliasLink : resolved->aliasLinks())
             {
-                auto alias_bundle_path = default_bundle_path(
-                    BundleEntryKind::SymlinkAlias,
-                    aliasLink.linkPath());
+                auto alias_bundle_path = bundle_path_for(
+                    layoutPolicy, BundleEntryKind::SymlinkAlias,
+                    aliasLink.linkPath(), fallbackLibraryDirectory);
                 auto alias_key =
                     alias_bundle_path.lexically_normal().string();
                 if (seen_aliases.insert(alias_key).second)
@@ -326,9 +366,10 @@ struct Executable::Impl
                     auto alias_entry = BundleEntry{};
                     alias_entry.sourcePath = aliasLink.linkPath();
                     alias_entry.bundledPath = alias_bundle_path;
-                    alias_entry.linkTarget = default_bundle_path(
-                        BundleEntryKind::SymlinkAlias,
-                        aliasLink.targetPath());
+                    alias_entry.linkTarget = bundle_path_for(
+                        layoutPolicy, BundleEntryKind::SymlinkAlias,
+                        aliasLink.targetPath(),
+                        fallbackLibraryDirectory);
                     alias_entry.kind = BundleEntryKind::SymlinkAlias;
                     alias_entry.requestedName =
                         aliasLink.linkPath().filename().string();
@@ -344,7 +385,7 @@ struct Executable::Impl
             manifest.entries.push_back(makeEntry(
                 *interpreter_path, interpreter_binary,
                 interpreter_path->filename().string(),
-                BundleEntryKind::Interpreter));
+                BundleEntryKind::Interpreter, layoutPolicy));
         }
 
         return manifest;
@@ -564,10 +605,11 @@ Executable::operator bool() const
 }
 
 [[nodiscard]] auto Executable::dependencyManifest(
-    bool includeInterpreter) const
+    bool includeInterpreter, BundleLayoutPolicy layoutPolicy) const
     -> BundleManifest
 {
-    return pimpl->dependencyManifest(includeInterpreter);
+    return pimpl->dependencyManifest(includeInterpreter,
+                                     layoutPolicy);
 }
 
 [[nodiscard]] auto Executable::runpath() const
