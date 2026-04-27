@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Resolver.hpp"
 #include <filesystem>
 #include <memory>
 #include <optional>
@@ -14,7 +15,7 @@ namespace fs = std::filesystem;
 struct ELFCache
 {
     ELFCache();
-    ELFCache(fs::path storageDir);
+    ELFCache(ResolverOptions options);
     ELFCache(ELFCache &&) noexcept;
     auto operator=(ELFCache &&) noexcept -> ELFCache &;
     ~ELFCache();
@@ -33,8 +34,7 @@ struct ELFCache
         -> std::optional<std::filesystem::path>;
 
   private:
-    struct Impl;
-    std::unique_ptr<Impl> m_impl;
+    std::unique_ptr<Resolver> m_resolver;
 };
 
 void swap(ELFCache &lhs, ELFCache &rhs) noexcept;

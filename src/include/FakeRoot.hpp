@@ -1,4 +1,5 @@
 #pragma once
+#include "BundleManifest.hpp"
 #include "abstract/AbstractFileManager.hpp"
 #include <filesystem>
 
@@ -19,6 +20,10 @@ struct FakeRoot : public AbstractFileManager<FakeRoot>
 
     [[nodiscard]] auto binaryStub(const fs::path &src,
                                   std::error_code &errc) const
+        -> fs::path;
+
+    [[nodiscard]] auto materialize(const BundleEntry &entry,
+                                   std::error_code &errc) const
         -> fs::path;
 
     [[nodiscard]] auto stripRoot(const fs::path &path) const

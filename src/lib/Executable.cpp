@@ -1,5 +1,5 @@
 #include "Executable.hpp"
-#include "ELFCache.hpp"
+#include "BundleManifest.hpp"
 #include "LIEF/Abstract/Binary.hpp"
 #include "LIEF/Abstract/Parser.hpp"
 #include "LIEF/ELF/Binary.hpp"
@@ -7,6 +7,7 @@
 #include "LIEF/ELF/DynamicEntryRpath.hpp"
 #include "LIEF/ELF/DynamicEntryRunPath.hpp"
 #include "LIEF/ELF/Segment.hpp"
+#include "Resolver.hpp"
 #include <LIEF/ELF.hpp>
 #include <LIEF/LIEF.hpp>
 #include <LIEF/Object.hpp>
@@ -17,22 +18,43 @@
 #include <memory>
 #include <optional>
 #include <queue>
-#include <ranges>
 #include <stdexcept>
 #include <string>
 #include <system_error>
-#include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
 namespace dynpax
 {
+namespace
+{
+
+auto default_bundle_path(BundleEntryKind kind,
+                         const fs::path &filePath) -> fs::path
+{
+    switch (kind)
+    {
+    case BundleEntryKind::Executable:
+        return fs::path{"/bin"} / filePath.filename();
+    case BundleEntryKind::Interpreter:
+    case BundleEntryKind::SharedObject:
+    case BundleEntryKind::SymlinkAlias:
+    case BundleEntryKind::Unknown:
+        return fs::path{"/lib64"} / filePath.filename();
+    }
+
+    return fs::path{"/lib64"} / filePath.filename();
+}
+
+} // namespace
 
 struct Executable::Impl
 {
-    explicit Impl(std::string name, std::shared_ptr<ELFCache> cache)
+    explicit Impl(std::string name,
+                  std::shared_ptr<Resolver> resolver)
         : binary_{LIEF::Parser::parse(name)},
-          filePath_{std::move(name)}, cache_{std::move(cache)}
+          filePath_{std::move(name)}, resolver_{std::move(resolver)}
     {
     }
 
@@ -41,72 +63,172 @@ struct Executable::Impl
         return binary_ != nullptr;
     }
 
-    [[nodiscard]] auto needed(const std::string &name) const
+    [[nodiscard]] static auto importedLibraries(
+        const std::unique_ptr<LIEF::Binary> &binary)
         -> std::vector<std::string>
     {
-        auto binary = LIEF::Parser::parse(name);
-        if (!binary)
+        if (!binary || !LIEF::ELF::Binary::classof(binary.get()))
         {
             return {};
         }
-        return needed(binary);
+
+        auto &elf = static_cast<LIEF::ELF::Binary &>(*binary); // NOLINT
+        auto imported = elf.imported_libraries();
+        return {imported.begin(), imported.end()};
     }
 
-    [[nodiscard]] auto needed(
-        const std::unique_ptr<LIEF::Binary> &binary) const
-        -> std::vector<std::string>
+    [[nodiscard]] static auto makeEntry(
+        const fs::path &sourcePath,
+        const std::unique_ptr<LIEF::Binary> &binary,
+        std::string requestedName, BundleEntryKind kind,
+        fs::path bundledPath = {})
+        -> BundleEntry
     {
-        auto result = std::vector<std::string>{};
-        if (LIEF::ELF::Binary::classof(binary.get()))
+        auto entry = BundleEntry{};
+        entry.sourcePath = sourcePath;
+        entry.kind = kind;
+        entry.requestedName = std::move(requestedName);
+        entry.bundledPath = bundledPath.empty()
+                                ? default_bundle_path(kind, sourcePath)
+                                : std::move(bundledPath);
+        if (binary && LIEF::ELF::Binary::classof(binary.get()))
         {
-            // NOLINTNEXTLINE
-            auto &elf = static_cast<LIEF::ELF::Binary &>(*binary);
-            auto seen =
-                std::unordered_map<std::string, std::string>{};
-            auto imported = elf.imported_libraries();
-            auto todo = std::queue<std::string>{imported.begin(),
-                                                imported.end()};
-            while (!todo.empty())
+            auto &elf =
+                static_cast<LIEF::ELF::Binary &>(*binary); // NOLINT
+            entry.hasInterpreter = elf.has_interpreter();
+        }
+        entry.rewritePlan.needsInterpreterRewrite =
+            entry.hasInterpreter;
+        return entry;
+    }
+
+    [[nodiscard]] auto dependencyManifest(bool includeInterpreter) const
+        -> BundleManifest
+    {
+        auto manifest = BundleManifest{};
+        manifest.primaryInput = filePath_;
+
+        if (!binary_ || !LIEF::ELF::Binary::classof(binary_.get()))
+        {
+            return manifest;
+        }
+
+        manifest.entries.push_back(makeEntry(
+            filePath_, binary_, filePath_.filename().string(),
+            BundleEntryKind::Executable));
+
+        auto interpreter_path = std::optional<fs::path>{};
+        auto interpreter_canonical_key = std::optional<std::string>{};
+        if (includeInterpreter)
+        {
+            auto binary_interpreter = interpreter();
+            if (binary_interpreter && binary_interpreter.value())
             {
-                auto lib = fs::path(todo.front()).filename().string();
-                auto path = cache_->getELFPath(lib);
-                if (!path.has_value())
+                interpreter_path = binary_interpreter.value().value();
+                std::error_code errc;
+                auto canonical_interpreter =
+                    fs::weakly_canonical(*interpreter_path, errc);
+                if (errc)
                 {
-                    throw std::runtime_error{
-                        fmt::format("Failed to resolve library: {}",
-                                    lib)}; // NOLINT
+                    canonical_interpreter =
+                        interpreter_path->lexically_normal();
                 }
-                todo.pop();
-                if (seen.contains(lib))
+                interpreter_canonical_key =
+                    canonical_interpreter.string();
+            }
+        }
+
+        auto seen_payloads = std::unordered_set<std::string>{};
+        auto seen_aliases = std::unordered_set<std::string>{};
+        auto imported = importedLibraries(binary_);
+        auto todo = std::queue<std::string>{imported.begin(),
+                                            imported.end()};
+        while (!todo.empty())
+        {
+            auto requested_name =
+                fs::path(todo.front()).filename().string();
+            todo.pop();
+
+            auto resolved = resolver_->resolve(requested_name);
+            if (!resolved.has_value())
+            {
+                throw std::runtime_error{fmt::format(
+                    "Failed to resolve library: {}",
+                    requested_name)}; // NOLINT
+            }
+
+            auto canonical_key = resolved->canonicalPath()
+                                     .lexically_normal()
+                                     .string();
+            if (interpreter_canonical_key.has_value() &&
+                canonical_key == *interpreter_canonical_key)
+            {
+                continue;
+            }
+
+            auto canonical_bundle_path = default_bundle_path(
+                BundleEntryKind::SharedObject,
+                resolved->canonicalPath());
+            if (seen_payloads.insert(canonical_key).second)
+            {
+                auto dependency_binary = LIEF::Parser::parse(
+                    resolved->canonicalPath().string());
+                if (!dependency_binary)
                 {
                     continue;
                 }
-                seen.insert({lib, path.value()});
-                auto nested = needed(path.value());
-                for (auto &nested_dep : nested)
+
+                manifest.entries.push_back(makeEntry(
+                    resolved->canonicalPath(), dependency_binary,
+                    requested_name, BundleEntryKind::SharedObject,
+                    canonical_bundle_path));
+
+                auto nested = importedLibraries(dependency_binary);
+                for (const auto &nested_dep : nested)
                 {
-                    if (!seen.contains(nested_dep))
-                    {
-                        todo.push(nested_dep);
-                    }
+                    todo.push(nested_dep);
                 }
             }
-            result.reserve(seen.size());
-            std::ranges::copy(seen | std::views::values,
-                              std::back_inserter(result));
+
+            for (const auto &aliasLink : resolved->aliasLinks())
+            {
+                auto alias_bundle_path = default_bundle_path(
+                    BundleEntryKind::SymlinkAlias,
+                    aliasLink.linkPath());
+                auto alias_key =
+                    alias_bundle_path.lexically_normal().string();
+                if (seen_aliases.insert(alias_key).second)
+                {
+                    auto alias_entry = BundleEntry{};
+                    alias_entry.sourcePath = aliasLink.linkPath();
+                    alias_entry.bundledPath = alias_bundle_path;
+                    alias_entry.linkTarget = default_bundle_path(
+                        BundleEntryKind::SymlinkAlias,
+                        aliasLink.targetPath());
+                    alias_entry.kind = BundleEntryKind::SymlinkAlias;
+                    alias_entry.requestedName =
+                        aliasLink.linkPath().filename().string();
+                    manifest.entries.push_back(std::move(alias_entry));
+                }
+            }
         }
-        return result;
-    }
 
-    [[nodiscard]] auto neededLibraries() const
-    {
-        return needed(binary_);
-    }
+        if (interpreter_path.has_value())
+        {
+            auto interpreter_binary =
+                LIEF::Parser::parse(interpreter_path->string());
+            manifest.entries.push_back(makeEntry(
+                *interpreter_path, interpreter_binary,
+                interpreter_path->filename().string(),
+                BundleEntryKind::Interpreter));
+        }
 
+        return manifest;
+    }
     [[nodiscard]] auto interpreter() const
         -> std::expected<std::optional<fs::path>, std::runtime_error>
     {
-        if (LIEF::ELF::Binary::classof(binary_.get()))
+        if (binary_ && LIEF::ELF::Binary::classof(binary_.get()))
         {
             // NOLINTNEXTLINE
             auto &elf = static_cast<LIEF::ELF::Binary &>(*binary_);
@@ -123,7 +245,7 @@ struct Executable::Impl
         -> std::expected<std::optional<std::vector<std::string>>,
                          std::runtime_error>
     {
-        if (LIEF::ELF::Binary::classof(binary_.get()))
+        if (binary_ && LIEF::ELF::Binary::classof(binary_.get()))
         {
             // NOLINTNEXTLINE
             auto &elf = static_cast<LIEF::ELF::Binary &>(*binary_);
@@ -144,10 +266,33 @@ struct Executable::Impl
         return std::unexpected{std::runtime_error{"not ELF binary"}};
     }
 
+    [[nodiscard]] auto rpath() const
+        -> std::expected<std::optional<std::vector<std::string>>,
+                         std::runtime_error>
+    {
+        if (binary_ && LIEF::ELF::Binary::classof(binary_.get()))
+        {
+            // NOLINTNEXTLINE
+            auto &elf = static_cast<LIEF::ELF::Binary &>(*binary_);
+            for (auto &entry : elf.dynamic_entries())
+            {
+                if (entry.tag() == LIEF::ELF::DynamicEntry::TAG::RPATH)
+                {
+                    // NOLINTNEXTLINE
+                    return static_cast<LIEF::ELF::DynamicEntryRpath &>(
+                               entry)
+                        .paths();
+                }
+            }
+            return std::optional<std::vector<std::string>>{};
+        }
+        return std::unexpected{std::runtime_error{"not ELF binary"}};
+    }
+
     void interpreter(const fs::path &path)
     {
         // TODO: this still does not work
-        if (LIEF::ELF::Binary::classof(binary_.get()))
+        if (binary_ && LIEF::ELF::Binary::classof(binary_.get()))
         {
             // NOLINTNEXTLINE
             auto &elf = static_cast<LIEF::ELF::Binary &>(*binary_);
@@ -160,26 +305,53 @@ struct Executable::Impl
 
     void runpath(const std::vector<std::string> &runpath)
     {
-        if (LIEF::ELF::Binary::classof(binary_.get()))
+        if (binary_ && LIEF::ELF::Binary::classof(binary_.get()))
         {
             auto &elf =
                 static_cast<LIEF::ELF::Binary &>(*binary_); // NOLINT
-            elf.remove(LIEF::ELF::DynamicEntry::TAG::RUNPATH);
-            LIEF::ELF::DynamicEntryRunPath entry{runpath};
-            elf.add(entry);
+            auto *existing =
+                elf.get(LIEF::ELF::DynamicEntry::TAG::RUNPATH);
+            if (existing != nullptr)
+            {
+                static_cast<LIEF::ELF::DynamicEntryRunPath &>(*existing)
+                    .paths(runpath);
+            }
+            else if (!runpath.empty())
+            {
+                LIEF::ELF::DynamicEntryRunPath entry{runpath};
+                elf.add(entry);
+            }
+
+            while (true)
+            {
+                auto *legacy =
+                    elf.get(LIEF::ELF::DynamicEntry::TAG::RPATH);
+                if (legacy == nullptr)
+                {
+                    break;
+                }
+                elf.remove(*legacy);
+            }
         }
     }
 
     void rpath(const std::vector<std::string> &rpath)
     {
-        if (LIEF::ELF::Binary::classof(binary_.get()))
+        if (binary_ && LIEF::ELF::Binary::classof(binary_.get()))
         {
             auto &elf =
                 static_cast<LIEF::ELF::Binary &>(*binary_); // NOLINT
-            elf.remove(LIEF::ELF::DynamicEntry::TAG::RPATH);
-            LIEF::ELF::DynamicEntryRpath entry{};
-            entry.paths(rpath);
-            elf.add(entry);
+            auto *existing = elf.get(LIEF::ELF::DynamicEntry::TAG::RPATH);
+            if (existing != nullptr)
+            {
+                elf.remove(*existing);
+            }
+            if (!rpath.empty())
+            {
+                LIEF::ELF::DynamicEntryRpath entry{};
+                entry.paths(rpath);
+                elf.add(entry);
+            }
         }
     }
 
@@ -221,12 +393,13 @@ struct Executable::Impl
   private:
     decltype(LIEF::Parser::parse("")) binary_{nullptr};
     fs::path filePath_;
-    std::shared_ptr<ELFCache> cache_;
+    std::shared_ptr<Resolver> resolver_;
 };
 
 Executable::Executable(std::string name,
-                       std::shared_ptr<ELFCache> cache)
-    : pimpl{std::make_unique<Impl>(std::move(name), std::move(cache))}
+                       std::shared_ptr<Resolver> resolver)
+    : pimpl{std::make_unique<Impl>(std::move(name),
+                                   std::move(resolver))}
 {
 }
 
@@ -257,7 +430,7 @@ void Executable::swap(Executable &rhs) noexcept
 
 Executable::operator bool() const
 {
-    return bool(pimpl);
+    return pimpl && static_cast<bool>(*pimpl);
 }
 
 [[nodiscard]] auto Executable::interpreter() const
@@ -266,10 +439,11 @@ Executable::operator bool() const
     return pimpl->interpreter();
 }
 
-[[nodiscard]] auto Executable::neededLibraries() const
-    -> std::vector<std::string>
+[[nodiscard]] auto Executable::dependencyManifest(
+    bool includeInterpreter) const
+    -> BundleManifest
 {
-    return pimpl->neededLibraries();
+    return pimpl->dependencyManifest(includeInterpreter);
 }
 
 [[nodiscard]] auto Executable::runpath() const
@@ -277,6 +451,13 @@ Executable::operator bool() const
                      std::runtime_error>
 {
     return pimpl->runpath();
+}
+
+[[nodiscard]] auto Executable::rpath() const
+    -> std::expected<std::optional<std::vector<std::string>>,
+                     std::runtime_error>
+{
+    return pimpl->rpath();
 }
 
 auto Executable::write(const fs::path &destFile) -> bool

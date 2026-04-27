@@ -1,13 +1,40 @@
 #include "App.hpp"
-#include "ELFCache.hpp"
+#include "BundleBuilder.hpp"
+#include "BundlePaths.hpp"
+#include "BundleVerifier.hpp"
 #include "Executable.hpp"
 #include "FakeRoot.hpp"
+#include "Resolver.hpp"
 #include <expected>
 #include <filesystem>
 #include <fmt/base.h>
 #include <fmt/printf.h>
 #include <fmt/ranges.h>
 #include <memory>
+
+namespace
+{
+
+auto kind_name(dynpax::BundleEntryKind kind) -> const char *
+{
+    switch (kind)
+    {
+    case dynpax::BundleEntryKind::Executable:
+        return "executable";
+    case dynpax::BundleEntryKind::SharedObject:
+        return "shared-object";
+    case dynpax::BundleEntryKind::Interpreter:
+        return "interpreter";
+    case dynpax::BundleEntryKind::SymlinkAlias:
+        return "symlink-alias";
+    case dynpax::BundleEntryKind::Unknown:
+        break;
+    }
+
+    return "unknown";
+}
+
+} // namespace
 
 auto main(int argc, char *argv[]) -> int
 {
@@ -22,78 +49,77 @@ auto main(int argc, char *argv[]) -> int
         dynpax::FakeRoot rootManager{
             std::move(parseResult->fakeRoot)};
 
-        std::error_code errc{};
-        auto elfCache = std::make_shared<dynpax::ELFCache>();
-        elfCache->populate();
+        auto resolver = std::make_shared<dynpax::Resolver>();
+        resolver->populate();
+        auto builder = dynpax::BundleBuilder{resolver};
+        auto verifier = dynpax::BundleVerifier{resolver};
         for (const auto &target : parseResult->targets)
         {
             fmt::println("Target: {}", target.string());
-            dynpax::Executable binary{target.string(), elfCache};
-            if (!binary)
+            auto buildResult =
+                builder.build(target, rootManager,
+                              parseResult->includeInterpreter);
+            if (!buildResult.has_value())
             {
-                fmt::println("Error: unable to open binary {}\n",
-                             target.string());
+                fmt::println("Error: {}", buildResult.error());
                 return 1;
             }
             fmt::println("Copy dynamic dependencies to {}",
                          rootManager.path().string());
-            for (const auto &library : binary.neededLibraries())
+
+            for (const auto &entry : buildResult->manifest.entries)
             {
-                auto dest = rootManager.addLibrary(library, errc);
-                if (errc)
+                auto dest = dynpax::materialized_path(
+                    buildResult->bundleRoot, entry.bundledPath);
+
+                switch (entry.kind)
                 {
-                    fmt::println("Error: failed to copy: {}",
-                                 library);
-                    return 1;
+                case dynpax::BundleEntryKind::Executable:
+                    fmt::println("Materialized executable {} => {}",
+                                 entry.sourcePath.string(),
+                                 dest.string());
+                    break;
+                case dynpax::BundleEntryKind::Interpreter:
+                    fmt::println("Materialized interpreter {} => {}",
+                                 entry.sourcePath.string(),
+                                 dest.string());
+                    break;
+                case dynpax::BundleEntryKind::SharedObject:
+                    fmt::println("Materialized library {} => {}",
+                                 entry.sourcePath.string(),
+                                 dest.string());
+                    break;
+                case dynpax::BundleEntryKind::SymlinkAlias:
+                    fmt::println("Materialized alias {} => {}",
+                                 entry.bundledPath.string(),
+                                 dest.string());
+                    break;
+                case dynpax::BundleEntryKind::Unknown:
+                    fmt::println("Skipped unknown manifest entry for {}",
+                                 entry.sourcePath.string());
+                    break;
                 }
-                fmt::println("Copied {} to {}", library,
-                             dest.string());
             }
 
-            if (parseResult->includeInterpreter)
+            auto report = verifier.verify(*buildResult);
+            if (!report.ok())
             {
-                auto interpreter = binary.interpreter();
-                if (!interpreter)
+                for (const auto &issue : report.issues)
                 {
-                    fmt::println("Error: failed to read interpreter "
-                                 "section: {}",
-                                 interpreter.error().what());
-                    return 1;
+                    if (!issue.path.empty())
+                    {
+                        fmt::println("Verification error {}: {}",
+                                     issue.path.string(),
+                                     issue.message);
+                    }
+                    else
+                    {
+                        fmt::println("Verification error: {}",
+                                     issue.message);
+                    }
                 }
-                if (!interpreter.value())
-                {
-                    fmt::println("Error: binary does not contain "
-                                 "interpreter section");
-                    return 1;
-                }
-
-                const auto src = interpreter.value().value();
-                auto dest = rootManager.addLibrary(src, errc);
-                if (errc)
-                {
-                    fmt::println(
-                        "Error: failed to copy interpreter: {}",
-                        src.string());
-                    return 1;
-                }
-                fmt::println("Copied {} => {}", src.string(),
-                             dest.string());
-
-                fmt::println("Set interpreter to {}", rootManager.stripRoot(dest).string());
-                binary.interpreter(rootManager.stripRoot(dest).string());
-            }
-            binary.rpath({""});
-            binary.runpath({"$ORIGIN/../lib64"});
-            auto dest = rootManager.binaryStub(target, errc);
-            if (errc)
-            {
-                fmt::println("Error: failed to copy binary stub: {}",
-                             target.string());
                 return 1;
             }
-            fmt::println("Copy binary {}",
-                         binary.filePath().string());
-            binary.write(dest);
         }
     }
     catch (const std::exception &except)
