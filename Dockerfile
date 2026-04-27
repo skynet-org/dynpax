@@ -58,7 +58,7 @@ RUN CC="/usr/bin/ccache /usr/bin/gcc" \
 # IMPORTANT: This is required to populate the fakeroot with the correct dependencies
 # we rely on dlopen so we need linker
 RUN /opt/tmp/dynpax/bin/dynpax -t /opt/tmp/dynpax/bin/dynpax -f /opt/dynpax -i
-RUN patchelf --set-interpreter /opt/dynpax/lib64/ld-linux-$(uname -m | tr '_' '-').so.2 /opt/dynpax/bin/dynpax
+# RUN patchelf --set-interpreter /opt/dynpax/lib64/ld-linux-$(uname -m | tr '_' '-').so.2 /opt/dynpax/bin/dynpax
 RUN patchelf --set-rpath "\$ORIGIN/../lib:\$ORIGIN/../usr/lib:\$ORIGIN/../usr/lib/$(uname -m)-linux-gnu" /opt/dynpax/bin/dynpax
 
 FROM scratch AS runtime
