@@ -1,3 +1,9 @@
+## [1.0.10](https://github.com/skynet-org/dynpax/compare/1.0.9...1.0.10) (2026-04-27)
+
+### Bug Fixes
+
+* example docker file ([#15](https://github.com/skynet-org/dynpax/issues/15)) ([aed033e](https://github.com/skynet-org/dynpax/commit/aed033e23b4b3d48579f582c4be1c6417d47e783))
+
 ## [1.0.9](https://github.com/skynet-org/dynpax/compare/1.0.8...1.0.9) (2026-04-26)
 
 ### Bug Fixes
