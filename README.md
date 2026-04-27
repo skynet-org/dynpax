@@ -42,6 +42,113 @@ docker build -t smartcoder/dynpax .
 
 See `Dockerfile.example` for a containerized usage example.
 
+## Testing
+
+Dynpax has three practical test layers:
+
+- resolver unit tests
+- bundle-verifier integration tests built from real ELF fixtures
+- an opt-in Docker matrix that executes bundled binaries under `chroot`
+
+### 1. Build the test targets
+
+`BUILD_TESTING` is handled through CTest. A normal local configure is enough:
+
+```bash
+cmake -S . -B build
+cmake --build build --target dynpax_resolver_tests dynpax_bundle_verifier_tests
+```
+
+If you want the Docker matrix target as well, configure with:
+
+```bash
+cmake -S . -B build \
+	-DDYNPAX_ENABLE_DOCKER_MATRIX=ON
+```
+
+### 2. Run the focused local tests
+
+Run the two main non-container checks with CTest:
+
+```bash
+ctest --test-dir build --output-on-failure \
+	-R '^dynpax\.(resolver|bundle_verifier)$'
+```
+
+What they cover:
+
+- `dynpax.resolver`: synthetic resolver tests, including alias chains and
+	runtime search-root precedence
+- `dynpax.bundle_verifier`: real fixture bundling, metadata rewriting,
+	manifest verification, and fake-root layout validation
+
+You can also run them individually:
+
+```bash
+ctest --test-dir build --output-on-failure -R '^dynpax\.resolver$'
+ctest --test-dir build --output-on-failure -R '^dynpax\.bundle_verifier$'
+```
+
+### 3. Run the Docker matrix
+
+The Docker matrix is opt-in by design. It is not required for normal local
+builds.
+
+Prerequisites:
+
+- Docker must be installed and runnable from the current shell.
+- The project must be configured with `-DDYNPAX_ENABLE_DOCKER_MATRIX=ON`.
+- If `musl-gcc` is available and `DYNPAX_ENABLE_MUSL_FIXTURE=ON` remains set,
+	the matrix will also include the musl-native Alpine case.
+
+Configure and run:
+
+```bash
+cmake -S . -B build \
+	-DDYNPAX_ENABLE_DOCKER_MATRIX=ON
+
+cmake --build build --target dynpax_docker_matrix
+```
+
+What the matrix currently does:
+
+- bundles a glibc fixture with Dynpax
+- runs that bundle in `ubuntu:24.04`
+- reruns the same bundle in `debian:stable-slim`
+- reruns the same bundle in `alpine:latest`
+- if the musl fixture exists, builds and runs the musl-native Alpine case too
+
+Where to inspect output:
+
+- bundle-generation and container logs are written under
+	`build/tests/docker/logs`
+- the matrix is driven by `tests/docker/run-matrix.sh`
+- the runner uses an isolated temporary Docker config by default so broken host
+	credential-helper settings do not block pulls for the public matrix images
+- set `DYNPAX_DOCKER_CONFIG=/path/to/docker-config` if you want the matrix to
+	use an existing Docker config instead
+
+### 4. Common test workflows
+
+Quick local regression check:
+
+```bash
+cmake --build build --target dynpax_resolver_tests dynpax_bundle_verifier_tests
+ctest --test-dir build --output-on-failure \
+	-R '^dynpax\.(resolver|bundle_verifier)$'
+```
+
+Full container validation:
+
+```bash
+cmake -S . -B build \
+	-DDYNPAX_ENABLE_DOCKER_MATRIX=ON
+cmake --build build --target dynpax_docker_matrix
+```
+
+If `musl-gcc` is missing, the Docker matrix still runs the glibc scenarios and
+skips the musl-native case cleanly.
+
 ## CLI
 
 ```text
@@ -73,11 +180,10 @@ Expected layout:
 
 ### 2. Bundle an ELF that depends on non-system libraries
 
-If the target depends on libraries outside the default loader search roots,
-make that directory discoverable during bundling.
+Dynpax now resolves dependencies from the target ELF's embedded `RUNPATH` or
+`RPATH` before falling back to the populated system search roots.
 
 ```bash
-LD_LIBRARY_PATH="$PWD/build/tests/fixtures/lib" \
 ./build/dynpax \
 	--target "$PWD/build/tests/fixtures/bin/hello_soname_glibc" \
 	--fake-root /tmp/dynpax-example-soname \
@@ -104,8 +210,8 @@ docker run --rm \
 The following outcomes were verified in this workspace:
 
 - Bundling `/bin/echo` with `--interpreter` succeeds.
-- Bundling the SONAME fixture succeeds when its library directory is exposed
-	through `LD_LIBRARY_PATH`.
+- Bundling the SONAME fixture succeeds from its embedded `RUNPATH` without
+	extra resolver roots or `LD_LIBRARY_PATH`.
 - Bundled executables and bundled shared objects retain only
 	`RUNPATH [$ORIGIN/../lib64]`.
 - Bundled ELFs no longer retain `RPATH`.

@@ -19,4 +19,6 @@ This directory holds the opt-in container validation slice from the implementati
 
 - Docker validation stays opt-in so default local builds do not require container tooling.
 - The script writes bundle-generation and scenario logs under `build/tests/docker/logs` when invoked through CMake.
+- The script uses an isolated temporary Docker config by default so a broken host credential helper does not block pulls for public images.
+- Set `DYNPAX_DOCKER_CONFIG=/path/to/docker-config` if you want the matrix to use an existing Docker config instead.
 - If `musl-gcc` is unavailable, the Alpine musl-native scenario is skipped while the glibc scenarios still run.

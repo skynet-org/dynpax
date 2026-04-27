@@ -74,8 +74,10 @@ struct Resolver
 
     auto populate() -> void;
 
-    [[nodiscard]] auto resolve(const std::string &libName) const
-                -> std::optional<ResolvedDependency>;
+    [[nodiscard]] auto resolve(
+        const std::string &libName,
+        const std::vector<fs::path> &additionalSearchRoots = {}) const
+        -> std::optional<ResolvedDependency>;
 
   private:
     struct Impl;

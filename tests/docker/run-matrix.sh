@@ -7,6 +7,7 @@ dynpax_bin=""
 glibc_fixture=""
 musl_fixture=""
 log_dir="${DYNPAX_DOCKER_LOG_DIR:-}"
+docker_config="${DYNPAX_DOCKER_CONFIG:-}"
 
 usage() {
     cat <<'EOF'
@@ -77,6 +78,20 @@ if [[ -z "$log_dir" ]]; then
 fi
 mkdir -p "$log_dir"
 
+if [[ -z "$docker_config" ]]; then
+    docker_config="$work_root/docker-config"
+    mkdir -p "$docker_config"
+    cat >"$docker_config/config.json" <<'EOF'
+{
+  "auths": {}
+}
+EOF
+fi
+
+run_docker() {
+    DOCKER_CONFIG="$docker_config" "$docker_bin" "$@"
+}
+
 bundle_fixture() {
     local fixture_path="$1"
     local bundle_root="$2"
@@ -93,7 +108,7 @@ run_chroot_case() {
     local executable_name="$4"
     local log_path="$log_dir/${scenario_name}.log"
 
-    "$docker_bin" run --rm \
+    run_docker run --rm \
         --volume "$bundle_root:/bundle:ro" \
         --entrypoint /bin/sh \
         "$image_name" \

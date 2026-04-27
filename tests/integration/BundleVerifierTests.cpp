@@ -94,17 +94,25 @@ auto resolver_options() -> dynpax::ResolverOptions
     return options;
 }
 
+auto host_resolver_options() -> dynpax::ResolverOptions
+{
+    auto options = dynpax::ResolverOptions{};
+    options.includeEnvironmentSearchRoots = false;
+    return options;
+}
+
 auto materialized_path(const fs::path &bundleRoot,
                        const fs::path &bundledPath) -> fs::path
 {
     return dynpax::materialized_path(bundleRoot, bundledPath);
 }
 
-auto bundle_fixture(const fs::path &fixtureBinary,
-                    const fs::path &bundleRoot) -> BundleArtifacts
+auto bundle_fixture(
+    const fs::path &fixtureBinary, const fs::path &bundleRoot,
+    const dynpax::ResolverOptions &options = resolver_options())
+    -> BundleArtifacts
 {
-    auto resolver =
-        std::make_shared<dynpax::Resolver>(resolver_options());
+    auto resolver = std::make_shared<dynpax::Resolver>(options);
     resolver->populate();
 
     auto builder = dynpax::BundleBuilder{resolver};
@@ -220,6 +228,34 @@ void test_bundle_verifier_rewrites_runpath_and_interpreter()
     expect(report.ok(), report.summary());
 }
 
+void test_bundle_resolves_from_embedded_runpath_without_extra_roots()
+{
+    auto tempDir = TempDir{};
+    auto artifacts = bundle_fixture(
+        fs::path{DYNPAX_FIXTURE_HELLO_ABS_RUNPATH}, tempDir.path(),
+        host_resolver_options());
+
+    verify_manifest_entry(artifacts.manifest,
+                          dynpax::BundleEntryKind::SharedObject,
+                          "libdynpaxgreet.so.1.2.0");
+    verify_manifest_entry(artifacts.manifest,
+                          dynpax::BundleEntryKind::SharedObject,
+                          "libdynpaxmessage.so.1.0.0");
+
+    auto resolver =
+        std::make_shared<dynpax::Resolver>(host_resolver_options());
+    resolver->populate();
+    auto verifier = dynpax::BundleVerifier{resolver};
+    auto buildResult = dynpax::BundleBuildResult{
+        .bundleRoot = tempDir.path(),
+        .manifest = artifacts.manifest,
+        .executableOutput = artifacts.executableOutput,
+        .interpreterBundlePath = artifacts.interpreterBundlePath,
+    };
+    auto report = verifier.verify(buildResult);
+    expect(report.ok(), report.summary());
+}
+
 } // namespace
 
 auto main() -> int
@@ -228,6 +264,7 @@ auto main() -> int
     {
         test_manifest_preserves_full_soname_chain();
         test_bundle_verifier_rewrites_runpath_and_interpreter();
+        test_bundle_resolves_from_embedded_runpath_without_extra_roots();
     }
     catch (const std::exception &except)
     {

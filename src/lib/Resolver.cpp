@@ -67,6 +67,13 @@ struct Resolver::Impl
         fs::path canonicalPath;
     };
 
+    struct ScanResult
+    {
+        std::unordered_map<std::string, ResolvedRecord> records;
+        std::unordered_map<std::string, std::vector<ResolvedSymlink>>
+            aliasLinksByCanonical;
+    };
+
     explicit Impl(ResolverOptions options)
         : m_options{std::move(options)}
     {
@@ -77,31 +84,25 @@ struct Resolver::Impl
         scan();
     }
 
-    [[nodiscard]] auto resolve(const std::string &libName) const
+    [[nodiscard]] auto resolve(
+        const std::string &libName,
+        const std::vector<fs::path> &additionalSearchRoots) const
         -> std::optional<ResolvedDependency>
     {
-        auto iter = m_records.find(libName);
-        if (iter != m_records.end())
+        if (!additionalSearchRoots.empty())
         {
-            auto aliasLinks = std::vector<ResolvedSymlink>{};
-            auto aliasIter = m_aliasLinksByCanonical.find(
-                iter->second.canonicalPath.string());
-            if (aliasIter != m_aliasLinksByCanonical.end())
+            auto dynamicScan = scanRoots(additionalSearchRoots);
+            auto dynamicResolved = makeResolvedDependency(
+                libName, dynamicScan.records,
+                dynamicScan.aliasLinksByCanonical);
+            if (dynamicResolved.has_value())
             {
-                aliasLinks = aliasIter->second;
-                std::ranges::sort(
-                    aliasLinks,
-                    [](const auto &left, const auto &right) {
-                        return left.linkPath().string() <
-                               right.linkPath().string();
-                    });
+                return dynamicResolved;
             }
-            return ResolvedDependency{iter->second.lookupName,
-                                      iter->second.aliasPath,
-                                      iter->second.canonicalPath,
-                                      std::move(aliasLinks)};
         }
-        return std::nullopt;
+
+        return makeResolvedDependency(libName, m_records,
+                                      m_aliasLinksByCanonical);
     }
 
   private:
@@ -194,11 +195,46 @@ struct Resolver::Impl
         return result;
     }
 
-    void register_alias_link(const fs::path &canonicalPath,
-                             ResolvedSymlink candidate)
+    [[nodiscard]] static auto makeResolvedDependency(
+        const std::string &libName,
+        const std::unordered_map<std::string, ResolvedRecord> &records,
+        const std::unordered_map<std::string,
+                                 std::vector<ResolvedSymlink>>
+            &aliasLinksByCanonical)
+        -> std::optional<ResolvedDependency>
+    {
+        auto iter = records.find(libName);
+        if (iter == records.end())
+        {
+            return std::nullopt;
+        }
+
+        auto aliasLinks = std::vector<ResolvedSymlink>{};
+        auto aliasIter = aliasLinksByCanonical.find(
+            iter->second.canonicalPath.string());
+        if (aliasIter != aliasLinksByCanonical.end())
+        {
+            aliasLinks = aliasIter->second;
+            std::ranges::sort(aliasLinks,
+                              [](const auto &left, const auto &right) {
+                                  return left.linkPath().string() <
+                                         right.linkPath().string();
+                              });
+        }
+
+        return ResolvedDependency{iter->second.lookupName,
+                                  iter->second.aliasPath,
+                                  iter->second.canonicalPath,
+                                  std::move(aliasLinks)};
+    }
+
+    static void register_alias_link(
+        std::unordered_map<std::string, std::vector<ResolvedSymlink>>
+            &aliasLinksByCanonical,
+        const fs::path &canonicalPath, ResolvedSymlink candidate)
     {
         auto &aliasLinks =
-            m_aliasLinksByCanonical[canonicalPath.string()];
+            aliasLinksByCanonical[canonicalPath.string()];
         auto found = std::ranges::find_if(
             aliasLinks, [&](const auto &existingAliasLink) {
                 return existingAliasLink.linkPath() ==
@@ -212,38 +248,13 @@ struct Resolver::Impl
         }
     }
 
-    auto scan() -> void
+    [[nodiscard]] static auto scanRoots(
+        const std::vector<fs::path> &searchDirs) -> ScanResult
     {
+        auto result = ScanResult{};
         std::error_code errc{};
-        constexpr static auto sysDirs = {"/lib", "/lib64", "/usr/lib",
-                                         "/usr/lib64"};
 
-        m_records.clear();
-        m_aliasLinksByCanonical.clear();
-
-        std::vector<fs::path> search_dirs{};
-        if (m_options.includeDefaultSearchRoots)
-        {
-            search_dirs.insert(search_dirs.end(), sysDirs.begin(),
-                               sysDirs.end());
-        }
-        if (m_options.includeLdConfigSearchRoots)
-        {
-            auto ldConfigDirs = parse_ld_config();
-            search_dirs.insert(search_dirs.end(), ldConfigDirs.begin(),
-                               ldConfigDirs.end());
-        }
-        if (m_options.includeEnvironmentSearchRoots)
-        {
-            auto envDirs = parse_env_var("LD_LIBRARY_PATH");
-            search_dirs.insert(search_dirs.end(), envDirs.begin(),
-                               envDirs.end());
-        }
-        search_dirs.insert(search_dirs.end(),
-                           m_options.searchRoots.begin(),
-                           m_options.searchRoots.end());
-
-        for (const auto &dir : search_dirs)
+        for (const auto &dir : searchDirs)
         {
             if (!fs::exists(dir))
             {
@@ -274,12 +285,13 @@ struct Resolver::Impl
                                 entry.path().filename().string();
                             auto canonical_path =
                                 canonicalize(resolved_path);
-                            m_records.insert_or_assign(
+                            result.records.insert_or_assign(
                                 lookup_name,
                                 ResolvedRecord{lookup_name,
                                                entry.path(),
                                                canonical_path});
                             register_alias_link(
+                                result.aliasLinksByCanonical,
                                 canonical_path,
                                 ResolvedSymlink{entry.path(),
                                                 resolved_path});
@@ -294,18 +306,58 @@ struct Resolver::Impl
                     }
                 }
                 if (entry.is_regular_file() &&
-                    !m_records.contains(entry.path().filename()) &&
+                    !result.records.contains(
+                        entry.path().filename().string()) &&
                     is_elf(entry.path()))
                 {
                     auto lookup_name =
                         entry.path().filename().string();
-                    m_records.emplace(
+                    result.records.emplace(
                         lookup_name,
                         ResolvedRecord{lookup_name, entry.path(),
                                        canonicalize(entry.path())});
                 }
             }
         }
+
+        return result;
+    }
+
+    [[nodiscard]] auto collectSearchDirs() const
+        -> std::vector<fs::path>
+    {
+        constexpr static auto sysDirs = {"/lib", "/lib64", "/usr/lib",
+                                         "/usr/lib64"};
+
+        auto searchDirs = std::vector<fs::path>{};
+        if (m_options.includeDefaultSearchRoots)
+        {
+            searchDirs.insert(searchDirs.end(), sysDirs.begin(),
+                              sysDirs.end());
+        }
+        if (m_options.includeLdConfigSearchRoots)
+        {
+            auto ldConfigDirs = parse_ld_config();
+            searchDirs.insert(searchDirs.end(), ldConfigDirs.begin(),
+                              ldConfigDirs.end());
+        }
+        if (m_options.includeEnvironmentSearchRoots)
+        {
+            auto envDirs = parse_env_var("LD_LIBRARY_PATH");
+            searchDirs.insert(searchDirs.end(), envDirs.begin(),
+                              envDirs.end());
+        }
+        searchDirs.insert(searchDirs.end(), m_options.searchRoots.begin(),
+                          m_options.searchRoots.end());
+        return searchDirs;
+    }
+
+    auto scan() -> void
+    {
+        auto scanResult = scanRoots(collectSearchDirs());
+        m_records = std::move(scanResult.records);
+        m_aliasLinksByCanonical =
+            std::move(scanResult.aliasLinksByCanonical);
     }
 
     ResolverOptions m_options;
@@ -409,10 +461,12 @@ auto Resolver::populate() -> void
     m_impl->populate();
 }
 
-[[nodiscard]] auto Resolver::resolve(const std::string &libName) const
+[[nodiscard]] auto Resolver::resolve(
+    const std::string &libName,
+    const std::vector<fs::path> &additionalSearchRoots) const
     -> std::optional<ResolvedDependency>
 {
-    return m_impl->resolve(libName);
+    return m_impl->resolve(libName, additionalSearchRoots);
 }
 
 void swap(Resolver &lhs, Resolver &rhs) noexcept

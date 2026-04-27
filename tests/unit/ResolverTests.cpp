@@ -179,6 +179,46 @@ void test_returns_nullopt_for_unknown_library()
            "missing libraries should not resolve");
 }
 
+void test_resolves_from_additional_search_roots()
+{
+    auto base_dir = TempDir{};
+    auto runtime_dir = TempDir{};
+    auto runtime_lib = runtime_dir.path() / "rpath" / "librunpath.so.1";
+    write_fake_elf(runtime_lib);
+
+    auto resolver = dynpax::Resolver{make_options(base_dir.path())};
+    resolver.populate();
+
+    auto resolved = resolver.resolve("librunpath.so.1",
+                                     {runtime_dir.path() / "rpath"});
+    expect(resolved.has_value(),
+           "expected additional search roots to resolve library");
+    expect(resolved->canonicalPath().lexically_normal() ==
+               runtime_lib.lexically_normal(),
+           "expected resolution from additional search root");
+}
+
+void test_prefers_additional_search_roots_over_populated_cache()
+{
+    auto base_dir = TempDir{};
+    auto runtime_dir = TempDir{};
+    auto cached_lib = base_dir.path() / "lib" / "libpriority.so.1";
+    auto runtime_lib = runtime_dir.path() / "lib" / "libpriority.so.1";
+    write_fake_elf(cached_lib);
+    write_fake_elf(runtime_lib);
+
+    auto resolver = dynpax::Resolver{make_options(base_dir.path())};
+    resolver.populate();
+
+    auto resolved = resolver.resolve("libpriority.so.1",
+                                     {runtime_dir.path() / "lib"});
+    expect(resolved.has_value(),
+           "expected runtime search roots to override cached resolution");
+    expect(resolved->canonicalPath().lexically_normal() ==
+               runtime_lib.lexically_normal(),
+           "expected additional search roots to take precedence");
+}
+
 } // namespace
 
 auto main() -> int
@@ -188,6 +228,8 @@ auto main() -> int
         test_resolves_regular_elf_from_custom_root();
         test_tracks_alias_and_canonical_paths_for_symlink();
         test_returns_nullopt_for_unknown_library();
+        test_resolves_from_additional_search_roots();
+        test_prefers_additional_search_roots_over_populated_cache();
     }
     catch (const std::exception &except)
     {

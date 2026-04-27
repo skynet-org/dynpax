@@ -30,6 +30,12 @@ namespace dynpax
 namespace
 {
 
+struct PendingDependency
+{
+    std::string requestedName;
+    std::vector<fs::path> searchRoots;
+};
+
 auto default_bundle_path(BundleEntryKind kind,
                          const fs::path &filePath) -> fs::path
 {
@@ -75,6 +81,112 @@ struct Executable::Impl
         auto &elf = static_cast<LIEF::ELF::Binary &>(*binary); // NOLINT
         auto imported = elf.imported_libraries();
         return {imported.begin(), imported.end()};
+    }
+
+    [[nodiscard]] static auto expandDynamicRoot(
+        std::string rawPath, const fs::path &ownerPath)
+        -> std::optional<fs::path>
+    {
+        auto origin = ownerPath.parent_path().string();
+
+        auto replaceAll = [](std::string &value,
+                             std::string_view needle,
+                             const std::string &replacement) {
+            auto position = size_t{0};
+            while ((position = value.find(needle, position)) !=
+                   std::string::npos)
+            {
+                value.replace(position, needle.size(), replacement);
+                position += replacement.size();
+            }
+        };
+
+        replaceAll(rawPath, "$ORIGIN", origin);
+        replaceAll(rawPath, "${ORIGIN}", origin);
+
+        if (rawPath.empty())
+        {
+            return std::nullopt;
+        }
+
+        auto expanded = fs::path{rawPath};
+        if (!expanded.is_absolute())
+        {
+            expanded = ownerPath.parent_path() / expanded;
+        }
+
+        std::error_code errc;
+        auto normalized = fs::weakly_canonical(expanded, errc);
+        if (errc)
+        {
+            normalized = expanded.lexically_normal();
+        }
+        return normalized;
+    }
+
+    [[nodiscard]] static auto loaderSearchRoots(
+        const std::unique_ptr<LIEF::Binary> &binary,
+        const fs::path &ownerPath) -> std::vector<fs::path>
+    {
+        if (!binary || !LIEF::ELF::Binary::classof(binary.get()))
+        {
+            return {};
+        }
+
+        auto collectPaths = [&](LIEF::ELF::DynamicEntry::TAG tag) {
+            auto roots = std::vector<fs::path>{};
+            auto &elf = static_cast<LIEF::ELF::Binary &>(*binary); // NOLINT
+            for (auto &entry : elf.dynamic_entries())
+            {
+                if (entry.tag() != tag)
+                {
+                    continue;
+                }
+
+                auto paths = std::vector<std::string>{};
+                if (tag == LIEF::ELF::DynamicEntry::TAG::RUNPATH)
+                {
+                    paths = static_cast<
+                                LIEF::ELF::DynamicEntryRunPath &>(entry)
+                                .paths();
+                }
+                else
+                {
+                    paths = static_cast<LIEF::ELF::DynamicEntryRpath &>(
+                                entry)
+                                .paths();
+                }
+
+                for (const auto &path : paths)
+                {
+                    auto expanded = expandDynamicRoot(path, ownerPath);
+                    if (expanded.has_value())
+                    {
+                        roots.push_back(*expanded);
+                    }
+                }
+            }
+            return roots;
+        };
+
+        auto roots = collectPaths(LIEF::ELF::DynamicEntry::TAG::RUNPATH);
+        if (roots.empty())
+        {
+            roots = collectPaths(LIEF::ELF::DynamicEntry::TAG::RPATH);
+        }
+
+        auto normalizedRoots = std::vector<fs::path>{};
+        auto seen = std::unordered_set<std::string>{};
+        for (const auto &root : roots)
+        {
+            auto key = root.lexically_normal().string();
+            if (seen.insert(key).second)
+            {
+                normalizedRoots.push_back(root);
+            }
+        }
+
+        return normalizedRoots;
     }
 
     [[nodiscard]] static auto makeEntry(
@@ -141,15 +253,24 @@ struct Executable::Impl
         auto seen_payloads = std::unordered_set<std::string>{};
         auto seen_aliases = std::unordered_set<std::string>{};
         auto imported = importedLibraries(binary_);
-        auto todo = std::queue<std::string>{imported.begin(),
-                                            imported.end()};
+        auto initialSearchRoots =
+            loaderSearchRoots(binary_, filePath_);
+        auto todo = std::queue<PendingDependency>{};
+        for (const auto &importedLibrary : imported)
+        {
+            todo.push(
+                PendingDependency{importedLibrary, initialSearchRoots});
+        }
         while (!todo.empty())
         {
-            auto requested_name =
-                fs::path(todo.front()).filename().string();
+            auto pending = std::move(todo.front());
             todo.pop();
 
-            auto resolved = resolver_->resolve(requested_name);
+            auto requested_name =
+                fs::path(pending.requestedName).filename().string();
+
+            auto resolved = resolver_->resolve(requested_name,
+                                               pending.searchRoots);
             if (!resolved.has_value())
             {
                 throw std::runtime_error{fmt::format(
@@ -184,9 +305,12 @@ struct Executable::Impl
                     canonical_bundle_path));
 
                 auto nested = importedLibraries(dependency_binary);
+                auto nestedSearchRoots = loaderSearchRoots(
+                    dependency_binary, resolved->canonicalPath());
                 for (const auto &nested_dep : nested)
                 {
-                    todo.push(nested_dep);
+                    todo.push(PendingDependency{nested_dep,
+                                                nestedSearchRoots});
                 }
             }
 
