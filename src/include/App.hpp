@@ -3,8 +3,8 @@
 #include <expected>
 #include <filesystem>
 #include <memory>
-#include <stdexcept>
 #include <string_view>
+#include <vector>
 
 namespace dynpax
 {
@@ -15,7 +15,7 @@ struct App
 
     struct Params
     {
-        fs::path target;
+        std::vector<fs::path> targets;
         fs::path fakeRoot;
         bool includeInterpreter;
     };
@@ -32,7 +32,7 @@ struct App
     auto operator=(App &&) -> App & = delete;
 
     ~App();
-    auto parse(int argc, char* argv[]) noexcept -> Result; // NOLINT
+    auto parse(int argc, char *argv[]) noexcept -> Result; // NOLINT
 
   private:
     struct Impl;

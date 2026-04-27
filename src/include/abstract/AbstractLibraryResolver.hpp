@@ -9,7 +9,7 @@ namespace dynpax
 
 template <typename T> struct AbstractLibraryResolver
 {
-    [[nodiscard]] static auto resolveLibrary(const std::string &name)
+    [[nodiscard]] auto resolveLibrary(const std::string &name) const
         -> std::expected<std::string, std::runtime_error>
     {
         return T::resolveLibrary(name);

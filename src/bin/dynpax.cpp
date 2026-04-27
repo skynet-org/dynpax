@@ -1,83 +1,104 @@
 #include "App.hpp"
+#include "ELFCache.hpp"
 #include "Executable.hpp"
-#include "FileManager.hpp"
-#include "LibraryResolver.hpp"
+#include "FakeRoot.hpp"
 #include <expected>
 #include <filesystem>
 #include <fmt/base.h>
 #include <fmt/printf.h>
 #include <fmt/ranges.h>
-#include <stdexcept>
-
-namespace fs = std::filesystem;
+#include <memory>
 
 auto main(int argc, char *argv[]) -> int
 {
-    dynpax::App app{"dynpax"};
-    auto parseResult = app.parse(argc, argv);
-    if (!parseResult.has_value())
+    try
     {
-        return parseResult.error();
-    }
-    dynpax::FileManager fileManager{std::move(parseResult->fakeRoot)};
-    dynpax::Executable binary{parseResult->target.string()};
-    if (!binary)
-    {
-        fmt::println("Error: unable to open {}\n",
-                     parseResult->target.string());
-        return 1;
-    }
-    fmt::println("Copy dynamic dependencies to {}",
-                 fileManager.fakeRoot().string());
-    for (const auto &library : binary.neededLibraries())
-    {
-        auto dst = fileManager.joinFakeRoot({library});
-        fmt::println("Copying {} => {}", library, dst.string());
-        if (!dynpax::FileManager::copyFile(library, dst))
+        dynpax::App app{"dynpax"};
+        auto parseResult = app.parse(argc, argv);
+        if (!parseResult.has_value())
         {
-            fmt::println("Error: failed to copy: {} => {}", library,
-                         dst.string());
+            return parseResult.error();
         }
-    }
-    if (parseResult->includeInterpreter)
-    {
-        // Example of very easy to read and follow functional style
-        // programming using C++23, enjoy! Ha-ha:)
-        auto interpreter = binary.interpreter();
-        if (!interpreter)
-        {
-            fmt::println(
-                "Error: failed to read interpreter section: {}",
-                interpreter.error().what());
-            return 1;
-        }
-        if (!interpreter.value())
-        {
-            fmt::println(
-                "Error: binary does not contain interpreter section");
-            return 1;
-        }
+        dynpax::FakeRoot rootManager{
+            std::move(parseResult->fakeRoot)};
 
-        const auto src = interpreter.value().value();
-        const auto dst = fileManager.joinFakeRoot({src});
-        fmt::println("Copy {} => {}", src.string(), dst.string());
-        if (!dynpax::FileManager::copyFile(src, dst))
+        std::error_code errc{};
+        auto elfCache = std::make_shared<dynpax::ELFCache>();
+        elfCache->populate();
+        for (const auto &target : parseResult->targets)
         {
-            fmt::println(
-                "Error: failed to copy interpreter: {} => {}",
-                src.string(), dst.string());
-            return 1;
+            fmt::println("Target: {}", target.string());
+            dynpax::Executable binary{target.string(), elfCache};
+            if (!binary)
+            {
+                fmt::println("Error: unable to open binary {}\n",
+                             target.string());
+                return 1;
+            }
+            fmt::println("Copy dynamic dependencies to {}",
+                         rootManager.path().string());
+            for (const auto &library : binary.neededLibraries())
+            {
+                auto dest = rootManager.addLibrary(library, errc);
+                if (errc)
+                {
+                    fmt::println("Error: failed to copy: {}",
+                                 library);
+                    return 1;
+                }
+                fmt::println("Copied {} to {}", library,
+                             dest.string());
+            }
+
+            if (parseResult->includeInterpreter)
+            {
+                auto interpreter = binary.interpreter();
+                if (!interpreter)
+                {
+                    fmt::println("Error: failed to read interpreter "
+                                 "section: {}",
+                                 interpreter.error().what());
+                    return 1;
+                }
+                if (!interpreter.value())
+                {
+                    fmt::println("Error: binary does not contain "
+                                 "interpreter section");
+                    return 1;
+                }
+
+                const auto src = interpreter.value().value();
+                auto dest = rootManager.addLibrary(src, errc);
+                if (errc)
+                {
+                    fmt::println(
+                        "Error: failed to copy interpreter: {}",
+                        src.string());
+                    return 1;
+                }
+                fmt::println("Copied {} => {}", src.string(),
+                             dest.string());
+
+                fmt::println("Set interpreter to {}", rootManager.stripRoot(dest).string());
+                binary.interpreter(rootManager.stripRoot(dest).string());
+            }
+            binary.rpath({""});
+            binary.runpath({"$ORIGIN/../lib64"});
+            auto dest = rootManager.binaryStub(target, errc);
+            if (errc)
+            {
+                fmt::println("Error: failed to copy binary stub: {}",
+                             target.string());
+                return 1;
+            }
+            fmt::println("Copy binary {}",
+                         binary.filePath().string());
+            binary.write(dest);
         }
     }
-
-    const auto binDst = fileManager.joinFakeRoot(
-        {"bin", binary.filePath().filename()});
-    fmt::println("Copy binary {} => {} {}",
-                 binary.filePath().string(), binDst.string(),
-                 binary.filePath().filename().string());
-    if (!dynpax::FileManager::copyFile(binary.filePath(), binDst))
+    catch (const std::exception &except)
     {
-        fmt::println("Error: failed to copy binary to new root");
+        fmt::println("Error: {}", except.what());
         return 1;
     }
 

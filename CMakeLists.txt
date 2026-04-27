@@ -27,8 +27,8 @@ if (NOT DEPENDENCIES_ONLY)
             src/bin/dynpax.cpp
             src/lib/App.cpp
             src/lib/Executable.cpp
-            src/lib/FileManager.cpp
-            src/lib/linux/LinuxLibraryResolver.cpp
+            src/lib/FakeRoot.cpp
+            src/lib/ELFCache.cpp
     )
 
     target_include_directories(dynpax PRIVATE "src/include")

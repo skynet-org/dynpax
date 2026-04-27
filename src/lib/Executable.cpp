@@ -1,11 +1,12 @@
 #include "Executable.hpp"
+#include "ELFCache.hpp"
 #include "LIEF/Abstract/Binary.hpp"
 #include "LIEF/Abstract/Parser.hpp"
 #include "LIEF/ELF/Binary.hpp"
 #include "LIEF/ELF/DynamicEntry.hpp"
+#include "LIEF/ELF/DynamicEntryRpath.hpp"
 #include "LIEF/ELF/DynamicEntryRunPath.hpp"
 #include "LIEF/ELF/Segment.hpp"
-#include "LibraryResolver.hpp"
 #include <LIEF/ELF.hpp>
 #include <LIEF/LIEF.hpp>
 #include <LIEF/Object.hpp>
@@ -21,7 +22,6 @@
 #include <string>
 #include <system_error>
 #include <unordered_map>
-#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -30,9 +30,9 @@ namespace dynpax
 
 struct Executable::Impl
 {
-    explicit Impl(std::string name)
+    explicit Impl(std::string name, std::shared_ptr<ELFCache> cache)
         : binary_{LIEF::Parser::parse(name)},
-          filePath_{std::move(name)}
+          filePath_{std::move(name)}, cache_{std::move(cache)}
     {
     }
 
@@ -68,13 +68,13 @@ struct Executable::Impl
                                                 imported.end()};
             while (!todo.empty())
             {
-                auto lib = todo.front();
-                auto path = LibraryResolver::resolveLibrary(lib);
+                auto lib = fs::path(todo.front()).filename().string();
+                auto path = cache_->getELFPath(lib);
                 if (!path.has_value())
                 {
-                    throw std::runtime_error{fmt::format(
-                        "Failed to resolve library {}: {}", lib,
-                        path.error().what())}; // NOLINT
+                    throw std::runtime_error{
+                        fmt::format("Failed to resolve library: {}",
+                                    lib)}; // NOLINT
                 }
                 todo.pop();
                 if (seen.contains(lib))
@@ -151,29 +151,10 @@ struct Executable::Impl
         {
             // NOLINTNEXTLINE
             auto &elf = static_cast<LIEF::ELF::Binary &>(*binary_);
-            // for (auto &seg : elf.segments())
-            // {
-            //     if (seg.is_interpreter())
-            //     {
-            //         const auto &cnt =
-            //             path.lexically_normal().u8string();
-            //         // NOLINTNEXTLINE
-            //         const auto *uint8Data =
-            //             reinterpret_cast<const uint8_t *>( //
-            //             NOLINT
-            //                 cnt.data());
-            //         // NOLINTNEXTLINE
-            //         seg.content(std::vector(
-            //             uint8Data,
-            //             uint8Data + cnt.size())); // NOLINT
-            //         fmt::println("Updated interpreter ...");
-            //         return;
-            //     }
-            // }
-
-            // fmt::println("Could not find interpreter segment");
-
-            elf.interpreter(path.lexically_normal());
+            if (elf.has_interpreter())
+            {
+                elf.interpreter(path);
+            }
         }
     }
 
@@ -183,7 +164,21 @@ struct Executable::Impl
         {
             auto &elf =
                 static_cast<LIEF::ELF::Binary &>(*binary_); // NOLINT
+            elf.remove(LIEF::ELF::DynamicEntry::TAG::RUNPATH);
             LIEF::ELF::DynamicEntryRunPath entry{runpath};
+            elf.add(entry);
+        }
+    }
+
+    void rpath(const std::vector<std::string> &rpath)
+    {
+        if (LIEF::ELF::Binary::classof(binary_.get()))
+        {
+            auto &elf =
+                static_cast<LIEF::ELF::Binary &>(*binary_); // NOLINT
+            elf.remove(LIEF::ELF::DynamicEntry::TAG::RPATH);
+            LIEF::ELF::DynamicEntryRpath entry{};
+            entry.paths(rpath);
             elf.add(entry);
         }
     }
@@ -226,10 +221,12 @@ struct Executable::Impl
   private:
     decltype(LIEF::Parser::parse("")) binary_{nullptr};
     fs::path filePath_;
+    std::shared_ptr<ELFCache> cache_;
 };
 
-Executable::Executable(std::string name)
-    : pimpl{std::make_unique<Impl>(std::move(name))}
+Executable::Executable(std::string name,
+                       std::shared_ptr<ELFCache> cache)
+    : pimpl{std::make_unique<Impl>(std::move(name), std::move(cache))}
 {
 }
 
@@ -295,6 +292,11 @@ void Executable::interpreter(const fs::path &interpreter)
 void Executable::runpath(const std::vector<std::string> &runpath)
 {
     pimpl->runpath(runpath);
+}
+
+void Executable::rpath(const std::vector<std::string> &rpath)
+{
+    pimpl->rpath(rpath);
 }
 
 [[nodiscard]] auto Executable::filePath() const -> fs::path

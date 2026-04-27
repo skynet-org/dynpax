@@ -1,5 +1,6 @@
 #pragma once
 
+#include "ELFCache.hpp"
 #include "LIEF/Abstract/Binary.hpp"
 #include <expected>
 #include <filesystem>
@@ -7,7 +8,6 @@
 #include <optional>
 #include <stdexcept>
 #include <string>
-#include <string_view>
 #include <vector>
 
 namespace dynpax
@@ -15,7 +15,8 @@ namespace dynpax
 namespace fs = std::filesystem;
 struct Executable
 {
-    explicit Executable(std::string name);
+    explicit Executable(std::string name,
+                        std::shared_ptr<ELFCache> cache);
     Executable(const Executable &rhs) = delete;
     Executable(Executable &&rhs) noexcept;
     auto operator=(const Executable &rhs) -> Executable & = delete;
@@ -37,6 +38,8 @@ struct Executable
                          std::runtime_error>;
 
     void runpath(const std::vector<std::string> &runpath);
+
+    void rpath(const std::vector<std::string> &rpath);
 
     auto write(const fs::path &destFile) -> bool;
 

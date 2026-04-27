@@ -21,8 +21,9 @@ struct App::Impl
 
     void setup()
     {
-        app.add_option("-t,--target"s, params.target,
-                       "Target ELF executable"s)
+        app.add_option(
+               "-t,--target"s, params.targets,
+               "Target ELF executables list (coma-separated)"s)
             ->required();
         app.add_option("-f,--fake-root"s, params.fakeRoot,
                        "Fake root to be used as RUNPATH"s);
@@ -36,8 +37,10 @@ struct App::Impl
         {
             setup();
             app.parse(argc, argv);
-            params.target =
-                fs::absolute(params.target.lexically_normal());
+            for (auto &target : params.targets)
+            {
+                target = fs::absolute(target.lexically_normal());
+            }
             if (!params.fakeRoot.empty())
             {
                 params.fakeRoot =
