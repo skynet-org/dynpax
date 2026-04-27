@@ -1,24 +1,24 @@
-FROM archlinux AS builder
+FROM ubuntu:26.04 AS builder
 
 ENV CCACHE_DIR=/ccache
 
 ENV CCACHE_MAXSIZE="5G"
 
-RUN pacman -Sy --noconfirm && \
-    pacman-key --init && \
-    pacman-key --populate archlinux && \
-    pacman -Syu --noconfirm
+ENV DEBIAN_FRONTEND=noninteractive
 
-RUN pacman -S --noconfirm --needed \
-    base-devel \
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    ca-certificates \
+    g++ \
     cmake \
-    ninja \
+    ninja-build \
     ccache \
     git \
     tree \
     wget \
     unzip \
-    tar
+    tar \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /src/dynpax
 
