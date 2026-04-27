@@ -16,6 +16,7 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-deprecated-literal-operator")
 list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_LIST_DIR}/cmake)
 
 include(Dependencies)
+option(BUILD_TESTING "Build Dynpax tests" OFF)
 include(CTest)
 
 add_library(dependencies INTERFACE)

@@ -1,16 +1,19 @@
-FROM ghcr.io/skynet-org/dynpax:latest AS tool
+ARG DYNPAX_IMAGE=ghcr.io/skynet-org/dynpax:latest
+
+FROM ${DYNPAX_IMAGE} AS tool
 
 FROM ubuntu:24.04 AS runtime
 
 ENV DEBIAN_FRONTEND=noninteractive
 
+COPY --from=tool /opt/dynpax/bin/dynpax /opt/dynpax/bin/dynpax
+
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    tree \
+    ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 RUN /opt/dynpax/bin/dynpax -t /usr/bin/bash -f /opt/fakeroot -i
-
-RUN tree /opt/fakeroot/
+RUN chroot /opt/fakeroot /bin/bash -lc "printf 'dynpax-example-build-ok\\n'" > /tmp/dynpax-example-smoke.txt
 
 FROM scratch AS destination
 

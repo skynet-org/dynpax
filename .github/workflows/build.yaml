@@ -8,6 +8,7 @@ on:
     push:
         branches:
             - "!main"
+
 env:
     REGISTRY: ghcr.io
     REGISTRY_USER: ${{ github.actor }}
@@ -15,10 +16,11 @@ env:
     NAME: ${{ github.repository }}
     BUILDER_TAG: ${{ github.ref_name }}
     DOCKER_BUILDKIT: "1"
+    DOCKER_CONFIG: .docker-config
+    DYNPAX_BUILD_TESTING: ${{ vars.DYNPAX_BUILD_TESTING || 'OFF' }}
 
 concurrency:
-    group: ci-${{ github.workflow }}-${{ github.event.pull_request.number ||
-        github.ref }}
+    group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
     cancel-in-progress: true
 
 permissions:
@@ -32,59 +34,127 @@ jobs:
         timeout-minutes: 720
         steps:
             - uses: actions/checkout@v6
+
             - name: Compute image name
               id: image
               env:
                   REPOSITORY: ${{ github.repository }}
               run: |
-                echo "name=ghcr.io/${REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+                  echo "name=ghcr.io/${REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+
+            - name: Compute image tags
+              id: tags
+              run: |
+                  echo "candidate=${{ steps.image.outputs.name }}:ci-${{ github.sha }}-amd64" >> "$GITHUB_OUTPUT"
+                  echo "example=${{ steps.image.outputs.name }}:example-ci-${{ github.sha }}-amd64" >> "$GITHUB_OUTPUT"
+
             - name: Set up Docker Buildx
               uses: docker/setup-buildx-action@v4
+
+            - name: Prepare isolated Docker config
+              run: mkdir -p "$DOCKER_CONFIG"
+
             - name: Login to GHCR
               uses: docker/login-action@v4
               with:
                   registry: ghcr.io
                   username: ${{ github.actor }}
                   password: ${{ secrets.GITHUB_TOKEN }}
-            - name: Dry Build Docker Image
+
+            - name: Build Docker Image
               uses: docker/build-push-action@v7
               with:
-                  push: true
+                  load: true
+                  platforms: linux/amd64
+                  build-args: |
+                      BUILD_TESTING=${{ env.DYNPAX_BUILD_TESTING }}
                   tags: |
-                      ${{ steps.image.outputs.name }}:amd64-tmp
+                      ${{ steps.tags.outputs.candidate }}
                   cache-from: |
                       type=registry,ref=${{ steps.image.outputs.name }}:amd64-cacheimage
                   cache-to: |
                       type=registry,ref=${{ steps.image.outputs.name }}:amd64-cacheimage,mode=max
                   annotations: |
                       arch=amd64
+
+            - name: Smoke test dynpax image
+              run: docker run --rm ${{ steps.tags.outputs.candidate }} --help
+
+            - name: Build Dockerfile.example image
+              run: |
+                  docker build --platform=linux/amd64 \
+                    --build-arg DYNPAX_IMAGE=${{ steps.tags.outputs.candidate }} \
+                    -f Dockerfile.example \
+                    -t ${{ steps.tags.outputs.example }} \
+                    .
+
+            - name: Smoke test Dockerfile.example image
+              run: docker run --rm --entrypoint /bin/bash ${{ steps.tags.outputs.example }} -lc "printf 'dynpax-example-ok\\n'"
+
+            - name: Push candidate image
+              run: docker push ${{ steps.tags.outputs.candidate }}
+
     build-arm64:
         runs-on: [ self-hosted, ARM64 ]
         timeout-minutes: 720
         steps:
             - uses: actions/checkout@v6
+
             - name: Compute image name
               id: image
               env:
                   REPOSITORY: ${{ github.repository }}
-              run: echo "name=ghcr.io/${REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+              run: |
+                  echo "name=ghcr.io/${REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+
+            - name: Compute image tags
+              id: tags
+              run: |
+                  echo "candidate=${{ steps.image.outputs.name }}:ci-${{ github.sha }}-arm64" >> "$GITHUB_OUTPUT"
+                  echo "example=${{ steps.image.outputs.name }}:example-ci-${{ github.sha }}-arm64" >> "$GITHUB_OUTPUT"
+
             - name: Set up Docker Buildx
               uses: docker/setup-buildx-action@v4
+
+            - name: Prepare isolated Docker config
+              run: mkdir -p "$DOCKER_CONFIG"
+
             - name: Login to GHCR
               uses: docker/login-action@v4
               with:
                   registry: ghcr.io
                   username: ${{ github.actor }}
                   password: ${{ secrets.GITHUB_TOKEN }}
-            - name: Dry Build Docker Image
+
+            - name: Build Docker Image
               uses: docker/build-push-action@v7
               with:
-                  push: true
+                  load: true
+                  platforms: linux/arm64
+                  build-args: |
+                      BUILD_TESTING=${{ env.DYNPAX_BUILD_TESTING }}
                   tags: |
-                      ${{ steps.image.outputs.name }}:arm64-tmp
+                      ${{ steps.tags.outputs.candidate }}
                   cache-from: |
                       type=registry,ref=${{ steps.image.outputs.name }}:arm64-cacheimage
                   cache-to: |
                       type=registry,ref=${{ steps.image.outputs.name }}:arm64-cacheimage,mode=max
                   annotations: |
                       arch=arm64
+
+            - name: Smoke test dynpax image
+              run: docker run --rm ${{ steps.tags.outputs.candidate }} --help
+
+            - name: Build Dockerfile.example image
+              run: |
+                  docker build --platform=linux/arm64 \
+                    --build-arg DYNPAX_IMAGE=${{ steps.tags.outputs.candidate }} \
+                    -f Dockerfile.example \
+                    -t ${{ steps.tags.outputs.example }} \
+                    .
+
+            - name: Smoke test Dockerfile.example image
+              run: docker run --rm --entrypoint /bin/bash ${{ steps.tags.outputs.example }} -lc "printf 'dynpax-example-ok\\n'"
+
+            - name: Push candidate image
+              run: docker push ${{ steps.tags.outputs.candidate }}
