@@ -1,3 +1,9 @@
+## [1.0.11](https://github.com/skynet-org/dynpax/compare/1.0.10...1.0.11) (2026-04-27)
+
+### Bug Fixes
+
+* rpath and interpreter ([#16](https://github.com/skynet-org/dynpax/issues/16)) ([c58205e](https://github.com/skynet-org/dynpax/commit/c58205e436b810f2a53da664b5c6e29ab3220e88))
+
 ## [1.0.10](https://github.com/skynet-org/dynpax/compare/1.0.9...1.0.10) (2026-04-27)
 
 ### Bug Fixes
