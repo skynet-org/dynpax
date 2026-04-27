@@ -22,6 +22,7 @@
 #include <stdexcept>
 #include <string>
 #include <system_error>
+#include <unordered_map>
 #include <unordered_set>
 #include <utility>
 #include <vector>
@@ -36,6 +37,23 @@ struct PendingDependency
     std::string requestedName;
     std::vector<fs::path> searchRoots;
 };
+
+struct PendingAliasEntry
+{
+    BundleEntry entry;
+    fs::path sourceTargetPath;
+};
+
+auto normalize_or_canonical(const fs::path &path) -> fs::path
+{
+    std::error_code errc;
+    auto canonical = fs::weakly_canonical(path, errc);
+    if (errc)
+    {
+        return path.lexically_normal();
+    }
+    return canonical;
+}
 
 auto fallback_libc_name(
     const std::vector<std::string> &importedLibraries)
@@ -264,6 +282,49 @@ struct Executable::Impl
 
         auto seen_payloads = std::unordered_set<std::string>{};
         auto seen_aliases = std::unordered_set<std::string>{};
+        auto plannedBundlePathsBySource =
+            std::unordered_map<std::string, fs::path>{};
+        auto plannedBundlePathsByCanonical =
+            std::unordered_map<std::string, fs::path>{};
+        auto registerPlannedPayloadPath =
+            [&](const fs::path &sourcePath, const fs::path &bundledPath) {
+                auto normalizedSource = sourcePath.lexically_normal();
+                plannedBundlePathsBySource.insert_or_assign(
+                    normalizedSource.string(), bundledPath);
+                auto canonicalSource =
+                    normalize_or_canonical(sourcePath);
+                plannedBundlePathsByCanonical.insert_or_assign(
+                    canonicalSource.string(), bundledPath);
+            };
+        auto registerPlannedAliasPath =
+            [&](const fs::path &sourcePath, const fs::path &bundledPath) {
+                auto normalizedSource = sourcePath.lexically_normal();
+                plannedBundlePathsBySource.insert_or_assign(
+                    normalizedSource.string(), bundledPath);
+            };
+        auto resolvePlannedLinkTarget =
+            [&](const fs::path &sourceTargetPath,
+                const fs::path &fallbackTargetPath) {
+                auto normalizedTarget =
+                    sourceTargetPath.lexically_normal();
+                if (auto exactIter = plannedBundlePathsBySource.find(
+                        normalizedTarget.string());
+                    exactIter != plannedBundlePathsBySource.end())
+                {
+                    return exactIter->second;
+                }
+
+                auto canonicalTarget =
+                    normalize_or_canonical(sourceTargetPath);
+                if (auto canonicalIter = plannedBundlePathsByCanonical.find(
+                        canonicalTarget.string());
+                    canonicalIter != plannedBundlePathsByCanonical.end())
+                {
+                    return canonicalIter->second;
+                }
+
+                return fallbackTargetPath;
+            };
         auto imported = importedLibraries(binary_);
         auto initialSearchRoots =
             loaderSearchRoots(binary_, filePath_);
@@ -329,6 +390,8 @@ struct Executable::Impl
             auto canonical_bundle_path = bundle_path_for(
                 layoutPolicy, BundleEntryKind::SharedObject,
                 resolved->canonicalPath(), fallbackLibraryDirectory);
+            registerPlannedPayloadPath(resolved->canonicalPath(),
+                                       canonical_bundle_path);
             if (seen_payloads.insert(canonical_key).second)
             {
                 auto dependency_binary = LIEF::Parser::parse(
@@ -354,6 +417,8 @@ struct Executable::Impl
                 }
             }
 
+            auto pendingAliasEntries =
+                std::vector<PendingAliasEntry>{};
             for (const auto &aliasLink : resolved->aliasLinks())
             {
                 auto alias_bundle_path = bundle_path_for(
@@ -366,15 +431,30 @@ struct Executable::Impl
                     auto alias_entry = BundleEntry{};
                     alias_entry.sourcePath = aliasLink.linkPath();
                     alias_entry.bundledPath = alias_bundle_path;
-                    alias_entry.linkTarget = bundle_path_for(
-                        layoutPolicy, BundleEntryKind::SymlinkAlias,
-                        aliasLink.targetPath(),
-                        fallbackLibraryDirectory);
                     alias_entry.kind = BundleEntryKind::SymlinkAlias;
                     alias_entry.requestedName =
                         aliasLink.linkPath().filename().string();
-                    manifest.entries.push_back(std::move(alias_entry));
+                    registerPlannedAliasPath(aliasLink.linkPath(),
+                                             alias_bundle_path);
+                    pendingAliasEntries.push_back(PendingAliasEntry{
+                        .entry = std::move(alias_entry),
+                        .sourceTargetPath = aliasLink.targetPath(),
+                    });
                 }
+            }
+
+            for (auto &pendingAliasEntry : pendingAliasEntries)
+            {
+                auto fallbackTargetPath = bundle_path_for(
+                    layoutPolicy, BundleEntryKind::SymlinkAlias,
+                    pendingAliasEntry.sourceTargetPath,
+                    fallbackLibraryDirectory);
+                pendingAliasEntry.entry.linkTarget =
+                    resolvePlannedLinkTarget(
+                        pendingAliasEntry.sourceTargetPath,
+                        fallbackTargetPath);
+                manifest.entries.push_back(
+                    std::move(pendingAliasEntry.entry));
             }
         }
 
