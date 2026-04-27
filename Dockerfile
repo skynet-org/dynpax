@@ -18,17 +18,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     wget \
     unzip \
     tar \
+    patchelf \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /src/dynpax
 
-COPY CMakeLists.txt /src/dynpax/
-
+# caching hacks
 COPY cmake/ /src/dynpax/cmake
 
 RUN CC="/usr/bin/ccache /usr/bin/gcc" \
     CXX="/usr/bin/ccache /usr/bin/g++" \
-    cmake -S . -B build_${TARGETARCH} -G Ninja \
+    cmake -Scmake -B build_${TARGETARCH} -G Ninja \
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_C_COMPILER_LAUNCHER=ccache \
     -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
@@ -39,7 +39,8 @@ RUN CC="/usr/bin/ccache /usr/bin/gcc" \
     CXX="/usr/bin/ccache /usr/bin/g++" \
     cmake --build build_${TARGETARCH} --parallel $(nproc)
 
-COPY src src
+COPY CMakeLists.txt CMakeLists.txt
+COPY src/ src/
 
 RUN CC="/usr/bin/ccache /usr/bin/gcc" \
     CXX="/usr/bin/ccache /usr/bin/g++" \
@@ -57,10 +58,9 @@ RUN CC="/usr/bin/ccache /usr/bin/gcc" \
 # IMPORTANT: This is required to populate the fakeroot with the correct dependencies
 # we rely on dlopen so we need linker
 RUN /opt/tmp/dynpax/bin/dynpax -t /opt/tmp/dynpax/bin/dynpax -f /opt/dynpax -i
+RUN patchelf --set-interpreter /opt/dynpax/lib64/ld-linux-$(uname -m | tr '_' '-').so.2 /opt/dynpax/bin/dynpax
+RUN patchelf --set-rpath "\$ORIGIN/../lib:\$ORIGIN/../usr/lib:\$ORIGIN/../usr/lib/$(uname -m)-linux-gnu" /opt/dynpax/bin/dynpax
 
 FROM scratch AS runtime
-
 COPY --from=builder /opt/dynpax /opt/dynpax
-
 ENTRYPOINT [ "/opt/dynpax/bin/dynpax" ]
-CMD [ "/opt/dynpax/bin/dynpax" ]
