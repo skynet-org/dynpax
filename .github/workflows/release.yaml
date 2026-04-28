@@ -3,6 +3,7 @@ name: Release
 on:
     release:
         types: [ published ]
+
 env:
     REGISTRY: ghcr.io
     REGISTRY_USER: ${{ github.actor }}
@@ -10,6 +11,8 @@ env:
     NAME: ${{ github.repository }}
     BUILDER_TAG: ${{ github.ref_name }}
     DOCKER_BUILDKIT: "1"
+    DOCKER_CONFIG: .docker-config
+    DYNPAX_BUILD_TESTING: ${{ vars.DYNPAX_BUILD_TESTING || 'OFF' }}
 
 concurrency:
     group: release-workflow-${{ github.workflow }}-${{ github.ref }}
@@ -29,34 +32,72 @@ jobs:
             - name: Tag Name
               id: tag-name
               run: |
-                  echo "tag=$(basename "${{ github.ref}}")" >> $GITHUB_OUTPUT
+                  echo "tag=${{ github.event.release.tag_name }}" >> "$GITHUB_OUTPUT"
+
             - name: Compute image name
               id: image
               env:
                   REPOSITORY: ${{ github.repository }}
-              run: echo "name=ghcr.io/${REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+              run: |
+                  echo "name=ghcr.io/${REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+
+            - name: Compute image tags
+              id: tags
+              run: |
+                  echo "versioned=${{ steps.image.outputs.name }}:amd64-${{ steps.tag-name.outputs.tag }}" >> "$GITHUB_OUTPUT"
+                  echo "moving=${{ steps.image.outputs.name }}:amd64-latest" >> "$GITHUB_OUTPUT"
+                  echo "example=${{ steps.image.outputs.name }}:example-${{ steps.tag-name.outputs.tag }}-amd64" >> "$GITHUB_OUTPUT"
+
             - uses: actions/checkout@v6
+
             - name: Set up Docker Buildx
               uses: docker/setup-buildx-action@v4
+
+            - name: Prepare isolated Docker config
+              run: mkdir -p "$DOCKER_CONFIG"
+
             - name: Login to GHCR
               uses: docker/login-action@v4
               with:
                   registry: ghcr.io
                   username: ${{ github.actor }}
                   password: ${{ secrets.GITHUB_TOKEN }}
-            - name: Dry Build Docker Image
+
+            - name: Build Docker Image
               uses: docker/build-push-action@v7
               with:
-                  push: true
+                  load: true
+                  platforms: linux/amd64
+                  build-args: |
+                      BUILD_TESTING=${{ env.DYNPAX_BUILD_TESTING }}
                   tags: |
-                      ${{ steps.image.outputs.name }}:amd64-latest
-                      ${{ steps.image.outputs.name }}:amd64-${{ steps.tag-name.outputs.tag }}
+                      ${{ steps.tags.outputs.moving }}
+                      ${{ steps.tags.outputs.versioned }}
                   cache-from: |
                       type=registry,ref=${{ steps.image.outputs.name }}:amd64-cacheimage
                   cache-to: |
                       type=registry,ref=${{ steps.image.outputs.name }}:amd64-cacheimage,mode=max
                   annotations: |
                       arch=amd64
+
+            - name: Smoke test dynpax image
+              run: docker run --rm ${{ steps.tags.outputs.versioned }} --help
+
+            - name: Build Dockerfile.example image
+              run: |
+                  docker build --platform=linux/amd64 \
+                    --build-arg DYNPAX_IMAGE=${{ steps.tags.outputs.versioned }} \
+                    -f Dockerfile.example \
+                    -t ${{ steps.tags.outputs.example }} \
+                    .
+
+            - name: Smoke test Dockerfile.example image
+              run: docker run --rm --entrypoint /bin/bash ${{ steps.tags.outputs.example }} -lc "printf 'dynpax-example-ok\\n'"
+
+            - name: Push architecture image tags
+              run: |
+                  docker push ${{ steps.tags.outputs.versioned }}
+                  docker push ${{ steps.tags.outputs.moving }}
 
     release-arm64:
         timeout-minutes: 720
@@ -66,34 +107,73 @@ jobs:
             - name: Tag Name
               id: tag-name
               run: |
-                echo "tag=$(basename "${{ github.ref}}")" >> $GITHUB_OUTPUT
+                  echo "tag=${{ github.event.release.tag_name }}" >> "$GITHUB_OUTPUT"
+
             - name: Compute image name
               id: image
               env:
                   REPOSITORY: ${{ github.repository }}
-              run: echo "name=ghcr.io/${REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+              run: |
+                  echo "name=ghcr.io/${REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+
+            - name: Compute image tags
+              id: tags
+              run: |
+                  echo "versioned=${{ steps.image.outputs.name }}:arm64-${{ steps.tag-name.outputs.tag }}" >> "$GITHUB_OUTPUT"
+                  echo "moving=${{ steps.image.outputs.name }}:arm64-latest" >> "$GITHUB_OUTPUT"
+                  echo "example=${{ steps.image.outputs.name }}:example-${{ steps.tag-name.outputs.tag }}-arm64" >> "$GITHUB_OUTPUT"
+
             - uses: actions/checkout@v6
+
             - name: Set up Docker Buildx
               uses: docker/setup-buildx-action@v4
+
+            - name: Prepare isolated Docker config
+              run: mkdir -p "$DOCKER_CONFIG"
+
             - name: Login to GHCR
               uses: docker/login-action@v4
               with:
                   registry: ghcr.io
                   username: ${{ github.actor }}
                   password: ${{ secrets.GITHUB_TOKEN }}
-            - name: Dry Build Docker Image
+
+            - name: Build Docker Image
               uses: docker/build-push-action@v7
               with:
-                  push: true
+                  load: true
+                  platforms: linux/arm64
+                  build-args: |
+                      BUILD_TESTING=${{ env.DYNPAX_BUILD_TESTING }}
                   tags: |
-                      ${{ steps.image.outputs.name }}:arm64-latest
-                      ${{ steps.image.outputs.name }}:arm64-${{ steps.tag-name.outputs.tag }}
+                      ${{ steps.tags.outputs.moving }}
+                      ${{ steps.tags.outputs.versioned }}
                   cache-from: |
                       type=registry,ref=${{ steps.image.outputs.name }}:arm64-cacheimage
                   cache-to: |
                       type=registry,ref=${{ steps.image.outputs.name }}:arm64-cacheimage,mode=max
                   annotations: |
                       arch=arm64
+
+            - name: Smoke test dynpax image
+              run: docker run --rm ${{ steps.tags.outputs.versioned }} --help
+
+            - name: Build Dockerfile.example image
+              run: |
+                  docker build --platform=linux/arm64 \
+                    --build-arg DYNPAX_IMAGE=${{ steps.tags.outputs.versioned }} \
+                    -f Dockerfile.example \
+                    -t ${{ steps.tags.outputs.example }} \
+                    .
+
+            - name: Smoke test Dockerfile.example image
+              run: docker run --rm --entrypoint /bin/bash ${{ steps.tags.outputs.example }} -lc "printf 'dynpax-example-ok\\n'"
+
+            - name: Push architecture image tags
+              run: |
+                  docker push ${{ steps.tags.outputs.versioned }}
+                  docker push ${{ steps.tags.outputs.moving }}
+
     release:
         timeout-minutes: 720
         runs-on: [ self-hosted, linux, X64 ]
@@ -105,25 +185,35 @@ jobs:
             - name: Tag Name
               id: tag-name
               run: |
-                echo "tag=$(basename "${{ github.ref}}")" >> $GITHUB_OUTPUT
+                  echo "tag=${{ github.event.release.tag_name }}" >> "$GITHUB_OUTPUT"
+
             - name: Compute image name
               id: image
               env:
                   REPOSITORY: ${{ github.repository }}
-              run: echo "name=ghcr.io/${REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+              run: |
+                  echo "name=ghcr.io/${REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+
             - uses: actions/checkout@v6
+
             - name: Set up Docker Buildx
               uses: docker/setup-buildx-action@v4
+
+            - name: Prepare isolated Docker config
+              run: mkdir -p "$DOCKER_CONFIG"
+
             - name: Login to GHCR
               uses: docker/login-action@v4
               with:
                   registry: ghcr.io
                   username: ${{ github.actor }}
                   password: ${{ secrets.GITHUB_TOKEN }}
+
             - name: Create multiplatform manifest and push
               shell: bash
               run: |
-                  set -e
+                  set -euo pipefail
+
                   docker buildx imagetools create \
                       -t ${{ steps.image.outputs.name }}:${{ steps.tag-name.outputs.tag }} \
                       ${{ steps.image.outputs.name }}:amd64-${{ steps.tag-name.outputs.tag }} \
@@ -133,3 +223,20 @@ jobs:
                       -t ${{ steps.image.outputs.name }}:latest \
                       ${{ steps.image.outputs.name }}:amd64-${{ steps.tag-name.outputs.tag }} \
                       ${{ steps.image.outputs.name }}:arm64-${{ steps.tag-name.outputs.tag }}
+
+            - name: Verify published manifest platforms
+              shell: bash
+              run: |
+                  set -euo pipefail
+
+                  docker buildx imagetools inspect \
+                    ${{ steps.image.outputs.name }}:${{ steps.tag-name.outputs.tag }} \
+                    | tee /tmp/dynpax-release-versioned.txt
+                  docker buildx imagetools inspect \
+                    ${{ steps.image.outputs.name }}:latest \
+                    | tee /tmp/dynpax-release-latest.txt
+
+                  grep -q 'linux/amd64' /tmp/dynpax-release-versioned.txt
+                  grep -q 'linux/arm64' /tmp/dynpax-release-versioned.txt
+                  grep -q 'linux/amd64' /tmp/dynpax-release-latest.txt
+                  grep -q 'linux/arm64' /tmp/dynpax-release-latest.txt

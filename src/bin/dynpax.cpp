@@ -1,83 +1,134 @@
 #include "App.hpp"
+#include "BundleBuilder.hpp"
+#include "BundlePaths.hpp"
+#include "BundleVerifier.hpp"
 #include "Executable.hpp"
-#include "FileManager.hpp"
-#include "LibraryResolver.hpp"
+#include "FakeRoot.hpp"
+#include "Resolver.hpp"
 #include <expected>
 #include <filesystem>
 #include <fmt/base.h>
 #include <fmt/printf.h>
 #include <fmt/ranges.h>
-#include <stdexcept>
+#include <memory>
 
-namespace fs = std::filesystem;
+namespace
+{
+
+auto kind_name(dynpax::BundleEntryKind kind) -> const char *
+{
+    switch (kind)
+    {
+    case dynpax::BundleEntryKind::Executable:
+        return "executable";
+    case dynpax::BundleEntryKind::SharedObject:
+        return "shared-object";
+    case dynpax::BundleEntryKind::Interpreter:
+        return "interpreter";
+    case dynpax::BundleEntryKind::SymlinkAlias:
+        return "symlink-alias";
+    case dynpax::BundleEntryKind::Unknown:
+        break;
+    }
+
+    return "unknown";
+}
+
+} // namespace
 
 auto main(int argc, char *argv[]) -> int
 {
-    dynpax::App app{"dynpax"};
-    auto parseResult = app.parse(argc, argv);
-    if (!parseResult.has_value())
+    try
     {
-        return parseResult.error();
-    }
-    dynpax::FileManager fileManager{std::move(parseResult->fakeRoot)};
-    dynpax::Executable binary{parseResult->target.string()};
-    if (!binary)
-    {
-        fmt::println("Error: unable to open {}\n",
-                     parseResult->target.string());
-        return 1;
-    }
-    fmt::println("Copy dynamic dependencies to {}",
-                 fileManager.fakeRoot().string());
-    for (const auto &library : binary.neededLibraries())
-    {
-        auto dst = fileManager.joinFakeRoot({library});
-        fmt::println("Copying {} => {}", library, dst.string());
-        if (!dynpax::FileManager::copyFile(library, dst))
+        dynpax::App app{"dynpax"};
+        auto parseResult = app.parse(argc, argv);
+        if (!parseResult.has_value())
         {
-            fmt::println("Error: failed to copy: {} => {}", library,
-                         dst.string());
+            return parseResult.error();
         }
-    }
-    if (parseResult->includeInterpreter)
-    {
-        // Example of very easy to read and follow functional style
-        // programming using C++23, enjoy! Ha-ha:)
-        auto interpreter = binary.interpreter();
-        if (!interpreter)
-        {
-            fmt::println(
-                "Error: failed to read interpreter section: {}",
-                interpreter.error().what());
-            return 1;
-        }
-        if (!interpreter.value())
-        {
-            fmt::println(
-                "Error: binary does not contain interpreter section");
-            return 1;
-        }
+        dynpax::FakeRoot rootManager{
+            std::move(parseResult->fakeRoot),
+            parseResult->layoutPolicy};
 
-        const auto src = interpreter.value().value();
-        const auto dst = fileManager.joinFakeRoot({src});
-        fmt::println("Copy {} => {}", src.string(), dst.string());
-        if (!dynpax::FileManager::copyFile(src, dst))
+        auto resolver = std::make_shared<dynpax::Resolver>();
+        resolver->populate();
+        auto builder = dynpax::BundleBuilder{resolver};
+        auto verifier = dynpax::BundleVerifier{resolver};
+        for (const auto &target : parseResult->targets)
         {
-            fmt::println(
-                "Error: failed to copy interpreter: {} => {}",
-                src.string(), dst.string());
-            return 1;
+            fmt::println("Target: {}", target.string());
+            fmt::println("Layout policy: {}",
+                         dynpax::bundle_layout_policy_name(
+                             parseResult->layoutPolicy));
+            auto buildResult =
+                builder.build(target, rootManager,
+                              parseResult->includeInterpreter);
+            if (!buildResult.has_value())
+            {
+                fmt::println("Error: {}", buildResult.error());
+                return 1;
+            }
+            fmt::println("Copy dynamic dependencies to {}",
+                         rootManager.path().string());
+
+            for (const auto &entry : buildResult->manifest.entries)
+            {
+                auto dest = dynpax::materialized_path(
+                    buildResult->bundleRoot, entry.bundledPath);
+
+                switch (entry.kind)
+                {
+                case dynpax::BundleEntryKind::Executable:
+                    fmt::println("Materialized executable {} => {}",
+                                 entry.sourcePath.string(),
+                                 dest.string());
+                    break;
+                case dynpax::BundleEntryKind::Interpreter:
+                    fmt::println("Materialized interpreter {} => {}",
+                                 entry.sourcePath.string(),
+                                 dest.string());
+                    break;
+                case dynpax::BundleEntryKind::SharedObject:
+                    fmt::println("Materialized library {} => {}",
+                                 entry.sourcePath.string(),
+                                 dest.string());
+                    break;
+                case dynpax::BundleEntryKind::SymlinkAlias:
+                    fmt::println("Materialized alias {} => {}",
+                                 entry.bundledPath.string(),
+                                 dest.string());
+                    break;
+                case dynpax::BundleEntryKind::Unknown:
+                    fmt::println("Skipped unknown manifest entry for {}",
+                                 entry.sourcePath.string());
+                    break;
+                }
+            }
+
+            auto report = verifier.verify(*buildResult);
+            if (!report.ok())
+            {
+                for (const auto &issue : report.issues)
+                {
+                    if (!issue.path.empty())
+                    {
+                        fmt::println("Verification error {}: {}",
+                                     issue.path.string(),
+                                     issue.message);
+                    }
+                    else
+                    {
+                        fmt::println("Verification error: {}",
+                                     issue.message);
+                    }
+                }
+                return 1;
+            }
         }
     }
-
-    const auto binDst = fileManager.joinFakeRoot(
-        {"bin", binary.filePath().filename()});
-    fmt::println("Copy binary {} => {} {}",
-                 binary.filePath().string(), binDst.string(),
-                 binary.filePath().filename().string());
-    if (!dynpax::FileManager::copyFile(binary.filePath(), binDst))
+    catch (const std::exception &except)
     {
-        fmt::println("Error: failed to copy binary to new root");
+        fmt::println("Error: {}", except.what());
         return 1;
     }
 
