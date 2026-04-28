@@ -1,3 +1,9 @@
+## [1.2.0](https://github.com/skynet-org/dynpax/compare/1.1.0...1.2.0) (2026-04-28)
+
+### Features
+
+* publish to dockerhub ([#19](https://github.com/skynet-org/dynpax/issues/19)) ([eec5672](https://github.com/skynet-org/dynpax/commit/eec5672082085f44bde58e52211a33f8dc95d7e5))
+
 ## [1.1.0](https://github.com/skynet-org/dynpax/compare/1.0.11...1.1.0) (2026-04-28)
 
 ### Features
