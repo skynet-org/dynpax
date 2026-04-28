@@ -1,3 +1,9 @@
+## [1.1.0](https://github.com/skynet-org/dynpax/compare/1.0.11...1.1.0) (2026-04-28)
+
+### Features
+
+* resolver ([978d6c9](https://github.com/skynet-org/dynpax/commit/978d6c9298fd6654801ba074ae65f3f6a0e67b19))
+
 ## [1.0.11](https://github.com/skynet-org/dynpax/compare/1.0.10...1.0.11) (2026-04-27)
 
 ### Bug Fixes
